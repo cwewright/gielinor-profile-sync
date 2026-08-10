@@ -13,9 +13,13 @@ one website or brand.
 - Bank, inventory, and equipment snapshots with freshness metadata
 - Grand Exchange offers and RuneLite price estimates
 - A player appearance descriptor and compact local-player model for private avatars
+- User-triggered character-history scenes with camera, animation and framing context
 
-It deliberately does **not** export world number, coordinates, FPS, animation
-state, account credentials, Discord details, or other client telemetry.
+The recurring account profile deliberately does **not** export world number,
+coordinates, FPS, animation state, account credentials, Discord details, or
+other client telemetry. A user-triggered history scene records camera and
+animation context only for that chosen image; it still omits exact location,
+world number, chat data and nearby-player names from structured metadata.
 
 ## Where the file lives
 
@@ -32,6 +36,17 @@ sync tool may copy `latest.json` to a private service or repository.
 Snapshots refresh on the configured interval and promptly after bank,
 inventory, or equipment changes so short bank visits are not missed.
 
+Character-history captures are written as PNG/JSON pairs under:
+
+```text
+%USERPROFILE%\.runelite\gielinor-profile-sync\captures\pending
+```
+
+The framing guide shows the central scene area that will be saved. In resizable
+mode this crop excludes the standard chat box, minimap and action tabs. Captures
+are blocked while the bank or a right-click menu is open, remain local, and are
+trimmed to the configured retention limit (20 by default).
+
 ## Development
 
 Run the tests with:
@@ -46,4 +61,5 @@ Run the RuneLite development client with:
 gradlew.bat run
 ```
 
-See [docs/schema-v1.md](docs/schema-v1.md) for the stable top-level contract.
+See [docs/schema-v1.md](docs/schema-v1.md) for the stable profile contract and
+[docs/capture-schema-v1.md](docs/capture-schema-v1.md) for history bundles.

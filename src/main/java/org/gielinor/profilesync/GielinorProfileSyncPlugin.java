@@ -2,6 +2,8 @@ package org.gielinor.profilesync;
 
 import com.google.gson.Gson;
 import com.google.inject.Provides;
+import java.awt.Rectangle;
+import java.awt.Shape;
 import java.io.File;
 import java.io.IOException;
 import java.time.Instant;
@@ -11,10 +13,12 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.GrandExchangeOffer;
@@ -27,15 +31,23 @@ import net.runelite.api.QuestState;
 import net.runelite.api.Skill;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.WidgetClosed;
+import net.runelite.api.events.WidgetLoaded;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.kit.KitType;
 import net.runelite.client.RuneLite;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.input.KeyManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.DrawManager;
+import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.util.HotkeyListener;
 
 @Slf4j
 @PluginDescriptor(
@@ -46,7 +58,7 @@ import net.runelite.client.plugins.PluginDescriptor;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.0";
+	private static final String PLUGIN_VERSION = "0.2.0";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 
@@ -62,6 +74,21 @@ public class GielinorProfileSyncPlugin extends Plugin
 	@Inject
 	private GielinorProfileSyncConfig config;
 
+	@Inject
+	private ClientThread clientThread;
+
+	@Inject
+	private DrawManager drawManager;
+
+	@Inject
+	private KeyManager keyManager;
+
+	@Inject
+	private OverlayManager overlayManager;
+
+	@Inject
+	private CharacterCaptureOverlay characterCaptureOverlay;
+
 	private ExecutorService fileExecutor;
 	private ProfileExportStore exportStore;
 	private volatile Map<String, Object> previousSnapshot = Collections.emptyMap();
@@ -71,6 +98,18 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private CachedContainer lastGoodBank;
 	private CachedContainer lastGoodInventory;
 	private CachedContainer lastGoodEquipment;
+	private volatile boolean captureInProgress;
+	private boolean bankInterfaceOpen;
+	private long bankContextUntil;
+
+	private final HotkeyListener captureHotkeyListener = new HotkeyListener(() -> config.captureHotkey())
+	{
+		@Override
+		public void hotkeyPressed()
+		{
+			clientThread.invokeLater(() -> requestCharacterCapture("manual"));
+		}
+	};
 
 	@Provides
 	GielinorProfileSyncConfig provideConfig(ConfigManager configManager)
@@ -89,12 +128,17 @@ public class GielinorProfileSyncPlugin extends Plugin
 			return thread;
 		});
 		fileExecutor.execute(() -> previousSnapshot = exportStore.readLatest());
+		keyManager.registerKeyListener(captureHotkeyListener);
+		overlayManager.add(characterCaptureOverlay);
 		log.info("Gielinor Profile Sync started.");
 	}
 
 	@Override
 	protected void shutDown()
 	{
+		keyManager.unregisterKeyListener(captureHotkeyListener);
+		overlayManager.remove(characterCaptureOverlay);
+		captureInProgress = false;
 		if (fileExecutor != null)
 		{
 			fileExecutor.shutdownNow();
@@ -102,6 +146,26 @@ public class GielinorProfileSyncPlugin extends Plugin
 		}
 		resetSession();
 		log.info("Gielinor Profile Sync stopped.");
+	}
+
+	@Subscribe
+	public void onWidgetLoaded(WidgetLoaded event)
+	{
+		if (isBankInterface(event.getGroupId()))
+		{
+			bankInterfaceOpen = true;
+			refreshBankContextWindow();
+		}
+	}
+
+	@Subscribe
+	public void onWidgetClosed(WidgetClosed event)
+	{
+		if (isBankInterface(event.getGroupId()))
+		{
+			bankInterfaceOpen = false;
+			refreshBankContextWindow();
+		}
 	}
 
 	@Subscribe
@@ -162,7 +226,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "containers", "grandExchange", "appearance", "playerModel"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "containers", "grandExchange", "appearance", "playerModel", "characterCaptures"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -272,10 +336,18 @@ public class GielinorProfileSyncPlugin extends Plugin
 			return appearance;
 		}
 
-		appearance.put("gender", composition.getGender());
-		appearance.put("colors", toIntegerList(composition.getColors()));
-		appearance.put("equipmentIds", toIntegerList(composition.getEquipmentIds()));
-		appearance.put("transformedNpcId", composition.getTransformedNpcId());
+		int gender = composition.getGender();
+		int[] colors = composition.getColors().clone();
+		int[] equipmentIds = composition.getEquipmentIds().clone();
+		int transformedNpcId = composition.getTransformedNpcId();
+		appearance.put("gender", gender);
+		appearance.put("colors", toIntegerList(colors));
+		appearance.put("equipmentIds", toIntegerList(equipmentIds));
+		appearance.put("transformedNpcId", transformedNpcId);
+		appearance.put(
+			"fingerprint",
+			String.format("%08x-%08x-%d-%d", Arrays.hashCode(equipmentIds), Arrays.hashCode(colors), gender, transformedNpcId)
+		);
 		Map<String, Object> model = PlayerModelSnapshot.from(player.getModel());
 		if (model != null)
 		{
@@ -317,6 +389,182 @@ public class GielinorProfileSyncPlugin extends Plugin
 			output.add(value);
 		}
 		return output;
+	}
+
+	private void requestCharacterCapture(String trigger)
+	{
+		Player localPlayer = client.getLocalPlayer();
+		if (client.getGameState() != GameState.LOGGED_IN || localPlayer == null || captureInProgress)
+		{
+			return;
+		}
+
+		if (bankInterfaceOpen)
+		{
+			client.addChatMessage(
+				ChatMessageType.GAMEMESSAGE,
+				"",
+				"Close the bank before capturing so no bank contents appear in the scene.",
+				null
+			);
+			return;
+		}
+
+		if (client.isMenuOpen())
+		{
+			client.addChatMessage(
+				ChatMessageType.GAMEMESSAGE,
+				"",
+				"Close the right-click menu before capturing the scene.",
+				null
+			);
+			return;
+		}
+
+		ExecutorService executor = fileExecutor;
+		if (executor == null)
+		{
+			return;
+		}
+
+		String captureId = UUID.randomUUID().toString();
+		Rectangle captureCrop = getCaptureCrop();
+		Map<String, Object> metadata = buildCaptureMetadata(captureId, trigger, localPlayer, captureCrop);
+		int retention = Math.max(3, Math.min(100, config.captureRetention()));
+		captureInProgress = true;
+
+		drawManager.requestNextFrameListener(image ->
+		{
+			captureInProgress = false;
+			executor.execute(() ->
+			{
+				try
+				{
+					CaptureBundle.write(getCapturePendingDirectory(), captureId, image, captureCrop, metadata, gson);
+					CaptureBundle.prune(getCapturePendingDirectory(), retention);
+					log.debug("Gielinor character history capture {} saved locally.", captureId);
+					clientThread.invokeLater(() -> client.addChatMessage(
+						ChatMessageType.GAMEMESSAGE,
+						"",
+						"Gielinor history scene saved locally.",
+						null
+					));
+				}
+				catch (IOException | RuntimeException e)
+				{
+					log.warn("Could not save Gielinor character history capture {}.", captureId, e);
+					clientThread.invokeLater(() -> client.addChatMessage(
+						ChatMessageType.GAMEMESSAGE,
+						"",
+						"Gielinor Profile Sync could not save that scene; check the RuneLite log.",
+						null
+					));
+				}
+			});
+		});
+	}
+
+	private Map<String, Object> buildCaptureMetadata(
+		String captureId,
+		String trigger,
+		Player localPlayer,
+		Rectangle captureCrop
+	)
+	{
+		Map<String, Object> metadata = new LinkedHashMap<>();
+		metadata.put("schemaVersion", 1);
+		metadata.put("captureId", captureId);
+		metadata.put("capturedAt", Instant.now().toString());
+
+		Map<String, Object> source = new LinkedHashMap<>();
+		source.put("plugin", CONFIG_GROUP);
+		source.put("pluginVersion", PLUGIN_VERSION);
+		source.put("profileSchemaVersion", SCHEMA_VERSION);
+		source.put("captureMode", "local-only");
+		metadata.put("source", source);
+
+		boolean bankContext = System.currentTimeMillis() <= bankContextUntil;
+		Map<String, Object> context = new LinkedHashMap<>();
+		context.put("trigger", trigger);
+		context.put("sceneTag", bankContext ? "bank" : "adventure");
+		context.put("bankContext", bankContext);
+		context.put("classification", bankContext ? "recent-bank-interface" : "unclassified");
+		metadata.put("context", context);
+
+		Map<String, Object> camera = new LinkedHashMap<>();
+		camera.put("yaw", client.getCameraYaw());
+		camera.put("pitch", client.getCameraPitch());
+		camera.put("scale", client.getScale());
+		camera.put("canvasWidth", client.getCanvasWidth());
+		camera.put("canvasHeight", client.getCanvasHeight());
+		camera.put("captureX", captureCrop.x);
+		camera.put("captureY", captureCrop.y);
+		camera.put("captureWidth", captureCrop.width);
+		camera.put("captureHeight", captureCrop.height);
+		metadata.put("camera", camera);
+
+		Map<String, Object> character = new LinkedHashMap<>();
+		character.put("animation", localPlayer.getAnimation());
+		character.put("animationFrame", localPlayer.getAnimationFrame());
+		character.put("poseAnimation", localPlayer.getPoseAnimation());
+		character.put("poseAnimationFrame", localPlayer.getPoseAnimationFrame());
+		character.put("idlePoseAnimation", localPlayer.getIdlePoseAnimation());
+		character.put("orientation", localPlayer.getOrientation());
+		character.put("currentOrientation", localPlayer.getCurrentOrientation());
+		metadata.put("character", character);
+		metadata.put("appearance", buildAppearance(localPlayer));
+
+		Shape hull = localPlayer.getConvexHull();
+		Rectangle playerBounds = hull == null ? null : hull.getBounds();
+		if (playerBounds != null)
+		{
+			playerBounds.translate(-captureCrop.x, -captureCrop.y);
+		}
+		metadata.put("framing", CaptureBundle.buildFraming(playerBounds, captureCrop.width, captureCrop.height));
+
+		Map<String, Object> privacy = new LinkedHashMap<>();
+		privacy.put("imageScope", "central-world-scene");
+		privacy.put("standardGameUiExcluded", true);
+		privacy.put("structuredExactLocationIncluded", false);
+		privacy.put("structuredWorldNumberIncluded", false);
+		privacy.put("structuredNearbyPlayerNamesIncluded", false);
+		privacy.put("structuredChatIncluded", false);
+		metadata.put("privacy", privacy);
+		return metadata;
+	}
+
+	Rectangle getCaptureCrop()
+	{
+		return CaptureBundle.buildSafeCaptureCrop(
+			client.getViewportXOffset(),
+			client.getViewportYOffset(),
+			client.getViewportWidth(),
+			client.getViewportHeight(),
+			client.getCanvasWidth(),
+			client.getCanvasHeight(),
+			client.isResized()
+		);
+	}
+
+	boolean isCaptureInProgress()
+	{
+		return captureInProgress;
+	}
+
+	private java.nio.file.Path getCapturePendingDirectory()
+	{
+		return new File(new File(new File(RuneLite.RUNELITE_DIR, CONFIG_GROUP), "captures"), "pending").toPath();
+	}
+
+	private void refreshBankContextWindow()
+	{
+		int seconds = Math.max(5, Math.min(300, config.recentBankSeconds()));
+		bankContextUntil = System.currentTimeMillis() + seconds * 1000L;
+	}
+
+	private boolean isBankInterface(int groupId)
+	{
+		return groupId == InterfaceID.BANKMAIN || groupId == InterfaceID.BANK_DEPOSITBOX;
 	}
 
 	private Map<String, Object> buildContainer(int inventoryId)
@@ -602,6 +850,9 @@ public class GielinorProfileSyncPlugin extends Plugin
 		lastGoodBank = null;
 		lastGoodInventory = null;
 		lastGoodEquipment = null;
+		bankInterfaceOpen = false;
+		bankContextUntil = 0;
+		captureInProgress = false;
 	}
 
 	private void resetAccount(String rsn)
@@ -610,6 +861,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 		lastGoodBank = null;
 		lastGoodInventory = null;
 		lastGoodEquipment = null;
+		bankInterfaceOpen = false;
+		bankContextUntil = 0;
 		ticksSinceExport = Math.max(10, config.exportIntervalTicks());
 	}
 

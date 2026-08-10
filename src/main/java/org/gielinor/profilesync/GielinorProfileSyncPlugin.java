@@ -26,6 +26,7 @@ import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
 import net.runelite.api.Skill;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.kit.KitType;
@@ -101,6 +102,16 @@ public class GielinorProfileSyncPlugin extends Plugin
 		}
 		resetSession();
 		log.info("Gielinor Profile Sync stopped.");
+	}
+
+	@Subscribe
+	public void onItemContainerChanged(ItemContainerChanged event)
+	{
+		int containerId = event.getContainerId();
+		if (containerId == InventoryID.BANK || containerId == InventoryID.INV || containerId == InventoryID.WORN)
+		{
+			ticksSinceExport = Math.max(10, config.exportIntervalTicks());
+		}
 	}
 
 	@Subscribe

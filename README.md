@@ -29,6 +29,9 @@ It also keeps one account-named JSON file in the same directory. Output stays
 local; this plugin performs no network requests. A separate, user-controlled
 sync tool may copy `latest.json` to a private service or repository.
 
+Snapshots refresh on the configured interval and promptly after bank,
+inventory, or equipment changes so short bank visits are not missed.
+
 ## Development
 
 Run the tests with:

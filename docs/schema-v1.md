@@ -31,6 +31,13 @@ a renderer: gender, five body colour indexes, transformed NPC ID, the raw
 equipment array, and named kit slots. Each slot labels its decoded content as
 `item`, `kit`, or `empty`.
 
-The descriptor is not a screenshot and never contains credentials or location
-data. A website should let the player explicitly choose when a newly exported
-look replaces their saved avatar.
+When RuneLite has a local-player model ready, `appearance.model` contains a
+compact, versioned copy of that rendered low-poly mesh. Vertex positions, face
+indexes, per-corner Jagex HSL colours, transparency, and texture identifiers are
+included. Consumers can rotate and project this mesh without downloading game
+models or sending appearance data to a rendering service. Textured faces may be
+shown with their model colour when a consumer does not ship game textures.
+
+The appearance section is not a screenshot and never contains credentials or
+location data. A website should let the player explicitly choose when a newly
+exported look replaces their saved avatar.

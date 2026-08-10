@@ -12,7 +12,7 @@ one website or brand.
 - Achievement Diary tier completion
 - Bank, inventory, and equipment snapshots with freshness metadata
 - Grand Exchange offers and RuneLite price estimates
-- A player appearance descriptor: body colours, kits, and equipped item IDs
+- A player appearance descriptor and compact local-player model for private avatars
 
 It deliberately does **not** export world number, coordinates, FPS, animation
 state, account credentials, Discord details, or other client telemetry.

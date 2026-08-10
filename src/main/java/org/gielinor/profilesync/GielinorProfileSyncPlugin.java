@@ -162,7 +162,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "containers", "grandExchange", "appearance"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "containers", "grandExchange", "appearance", "playerModel"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -276,6 +276,11 @@ public class GielinorProfileSyncPlugin extends Plugin
 		appearance.put("colors", toIntegerList(composition.getColors()));
 		appearance.put("equipmentIds", toIntegerList(composition.getEquipmentIds()));
 		appearance.put("transformedNpcId", composition.getTransformedNpcId());
+		Map<String, Object> model = PlayerModelSnapshot.from(player.getModel());
+		if (model != null)
+		{
+			appearance.put("model", model);
+		}
 
 		Map<String, Object> slots = new LinkedHashMap<>();
 		for (KitType kitType : KitType.values())

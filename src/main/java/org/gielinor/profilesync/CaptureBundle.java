@@ -18,8 +18,10 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
@@ -199,6 +201,109 @@ final class CaptureBundle
 			Files.deleteIfExists(manifest);
 			Files.deleteIfExists(pendingDirectory.resolve(stem + ".png"));
 		}
+	}
+
+	@SuppressWarnings("unchecked")
+	static void pruneDiverse(Path pendingDirectory, int retention, Gson gson) throws IOException
+	{
+		if (!Files.isDirectory(pendingDirectory))
+		{
+			return;
+		}
+
+		List<Path> manifests;
+		try (Stream<Path> paths = Files.list(pendingDirectory))
+		{
+			manifests = paths
+				.filter(path -> path.getFileName().toString().endsWith(".json"))
+				.sorted(Comparator.comparingLong(CaptureBundle::lastModified).reversed())
+				.collect(Collectors.toList());
+		}
+
+		Set<Path> protectedManifests = new LinkedHashSet<>();
+		Set<String> protectedSkills = new LinkedHashSet<>();
+		int protectedBankScenes = 0;
+		for (Path manifest : manifests)
+		{
+			try
+			{
+				Map<String, Object> parsed = gson.fromJson(Files.readString(manifest), Map.class);
+				Object rawContext = parsed == null ? null : parsed.get("context");
+				if (!(rawContext instanceof Map))
+				{
+					continue;
+				}
+				Map<String, Object> context = (Map<String, Object>) rawContext;
+				String sceneTag = context.get("sceneTag") instanceof String ? (String) context.get("sceneTag") : null;
+				String skillTag = context.get("skillTag") instanceof String ? (String) context.get("skillTag") : null;
+				if ("bank".equals(sceneTag) && protectedBankScenes < 2)
+				{
+					protectedManifests.add(manifest);
+					protectedBankScenes++;
+				}
+				if (skillTag != null && protectedSkills.add(skillTag))
+				{
+					protectedManifests.add(manifest);
+				}
+			}
+			catch (IOException | RuntimeException ignored)
+			{
+				// A malformed manifest is never selected as a diversity keeper, but the
+				// normal newest-first retention pass can still keep it for inspection.
+			}
+		}
+
+		int limit = Math.max(Math.max(1, retention), protectedManifests.size());
+		Set<Path> keep = new LinkedHashSet<>(protectedManifests);
+		for (Path manifest : manifests)
+		{
+			if (keep.size() >= limit)
+			{
+				break;
+			}
+			keep.add(manifest);
+		}
+		for (Path manifest : manifests)
+		{
+			if (keep.contains(manifest))
+			{
+				continue;
+			}
+			String fileName = manifest.getFileName().toString();
+			String stem = fileName.substring(0, fileName.length() - ".json".length());
+			Files.deleteIfExists(manifest);
+			Files.deleteIfExists(pendingDirectory.resolve(stem + ".png"));
+		}
+	}
+
+	@SuppressWarnings("unchecked")
+	static int countSceneTag(Path captureRoot, String expectedSceneTag, Gson gson) throws IOException
+	{
+		if (!Files.isDirectory(captureRoot))
+		{
+			return 0;
+		}
+		int count = 0;
+		try (Stream<Path> paths = Files.walk(captureRoot, 2))
+		{
+			for (Path manifest : paths.filter(path -> path.getFileName().toString().endsWith(".json")).collect(Collectors.toList()))
+			{
+				try
+				{
+					Map<String, Object> parsed = gson.fromJson(Files.readString(manifest), Map.class);
+					Object rawContext = parsed == null ? null : parsed.get("context");
+					if (rawContext instanceof Map && expectedSceneTag.equals(((Map<String, Object>) rawContext).get("sceneTag")))
+					{
+						count++;
+					}
+				}
+				catch (IOException | RuntimeException ignored)
+				{
+					// Ignore incomplete or user-edited manifests when warming the counter.
+				}
+			}
+		}
+		return count;
 	}
 
 	static String differenceHash(BufferedImage source)

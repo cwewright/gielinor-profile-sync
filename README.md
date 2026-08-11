@@ -13,13 +13,15 @@ one website or brand.
 - Bank, inventory, and equipment snapshots with freshness metadata
 - Grand Exchange offers and RuneLite price estimates
 - A player appearance descriptor and compact local-player model for private avatars
-- User-triggered character-history scenes with camera, animation and framing context
+- Manual and optional hourly character-history scenes with camera, animation,
+  framing, recent-skill and coarse-region context
 
 The recurring account profile deliberately does **not** export world number,
 coordinates, FPS, animation state, account credentials, Discord details, or
-other client telemetry. A user-triggered history scene records camera and
-animation context only for that chosen image; it still omits exact location,
-world number, chat data and nearby-player names from structured metadata.
+other client telemetry. A history scene records camera and animation context for
+that image. v0.3 can also record a recent XP-backed skill name and a coarse
+64-by-64 map-region tag; it still omits exact coordinates, plane, world number,
+chat data and nearby-player names from structured metadata.
 
 ## Where the file lives
 
@@ -44,8 +46,13 @@ Character-history captures are written as PNG/JSON pairs under:
 
 The framing guide shows the central scene area that will be saved. In resizable
 mode this crop excludes the standard chat box, minimap and action tabs. Captures
-are blocked while the bank or a right-click menu is open, remain local, and are
-trimmed to the configured retention limit (20 by default).
+are blocked while the bank or a right-click menu is open and remain local.
+
+Automatic history capture is **off by default**. After explicit opt-in it waits
+about 60 minutes of logged-in play and only saves when a recent real XP change can
+label the skill. It also collects up to two bank-context scenes after the bank has
+closed. The pending queue defaults to 100 bundles, and diversity-aware pruning
+preserves the two newest bank scenes plus the newest scene for every tagged skill.
 
 ## Development
 

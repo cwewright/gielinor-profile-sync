@@ -112,6 +112,53 @@ public class CaptureBundleTest
 		assertTrue(Files.exists(pending.resolve("capture-2.json")));
 	}
 
+	@Test
+	public void diversePruningPreservesTwoBanksAndNewestCapturePerSkill() throws Exception
+	{
+		Path captureRoot = temporaryFolder.newFolder("diverse-root").toPath();
+		Path pending = Files.createDirectories(captureRoot.resolve("pending"));
+		BufferedImage image = testImage();
+		writeTaggedCapture(pending, image, "bank-old", "bank", null, 1_000L);
+		writeTaggedCapture(pending, image, "attack-old", "adventure", "Attack", 2_000L);
+		writeTaggedCapture(pending, image, "bank-new", "bank", null, 3_000L);
+		writeTaggedCapture(pending, image, "fishing", "adventure", "Fishing", 4_000L);
+		writeTaggedCapture(pending, image, "attack-new", "adventure", "Attack", 5_000L);
+		writeTaggedCapture(pending, image, "untagged-newest", "adventure", null, 6_000L);
+
+		Gson gson = new Gson();
+		CaptureBundle.pruneDiverse(pending, 4, gson);
+
+		assertTrue(Files.exists(pending.resolve("bank-old.json")));
+		assertTrue(Files.exists(pending.resolve("bank-new.json")));
+		assertTrue(Files.exists(pending.resolve("fishing.json")));
+		assertTrue(Files.exists(pending.resolve("attack-new.json")));
+		assertFalse(Files.exists(pending.resolve("attack-old.json")));
+		assertFalse(Files.exists(pending.resolve("untagged-newest.json")));
+		assertEquals(2, CaptureBundle.countSceneTag(captureRoot, "bank", gson));
+	}
+
+	private void writeTaggedCapture(
+		Path pending,
+		BufferedImage image,
+		String id,
+		String sceneTag,
+		String skillTag,
+		long modifiedAt
+	) throws Exception
+	{
+		Map<String, Object> context = new LinkedHashMap<>();
+		context.put("sceneTag", sceneTag);
+		if (skillTag != null)
+		{
+			context.put("skillTag", skillTag);
+		}
+		Map<String, Object> metadata = new LinkedHashMap<>();
+		metadata.put("captureId", id);
+		metadata.put("context", context);
+		CaptureBundle.write(pending, id, image, null, metadata, new Gson());
+		Files.setLastModifiedTime(pending.resolve(id + ".json"), FileTime.fromMillis(modifiedAt));
+	}
+
 	private BufferedImage testImage()
 	{
 		BufferedImage image = new BufferedImage(90, 80, BufferedImage.TYPE_INT_RGB);

@@ -66,16 +66,54 @@ public interface GielinorProfileSyncConfig extends Config
 		return 60;
 	}
 
-	@Range(min = 3, max = 100)
 	@ConfigItem(
-		keyName = "captureRetention",
-		name = "Local capture limit",
-		description = "Maximum completed scene bundles retained in the local pending queue.",
+		keyName = "automaticCaptures",
+		name = "Automatic history captures",
+		description = "After explicit opt-in, save a scene about once per active hour when recent skill activity can label it.",
 		section = characterCaptures,
 		position = 3
 	)
+	default boolean automaticCaptures()
+	{
+		return false;
+	}
+
+	@Range(min = 15, max = 240)
+	@ConfigItem(
+		keyName = "automaticCaptureMinutes",
+		name = "Automatic capture interval",
+		description = "Minutes of logged-in play between automatic skill-history scenes.",
+		section = characterCaptures,
+		position = 4
+	)
+	default int automaticCaptureMinutes()
+	{
+		return 60;
+	}
+
+	@Range(min = 1, max = 30)
+	@ConfigItem(
+		keyName = "skillContextMinutes",
+		name = "Skill context window",
+		description = "How recently XP must have changed for an automatic scene to receive that skill tag.",
+		section = characterCaptures,
+		position = 5
+	)
+	default int skillContextMinutes()
+	{
+		return 10;
+	}
+
+	@Range(min = 30, max = 500)
+	@ConfigItem(
+		keyName = "captureRetention",
+		name = "Local capture limit",
+		description = "Maximum pending bundles; pruning preserves two bank scenes and the newest scene for every tagged skill.",
+		section = characterCaptures,
+		position = 6
+	)
 	default int captureRetention()
 	{
-		return 20;
+		return 100;
 	}
 }

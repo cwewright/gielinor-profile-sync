@@ -31,6 +31,7 @@ import net.runelite.api.QuestState;
 import net.runelite.api.Skill;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
@@ -58,7 +59,7 @@ import net.runelite.client.util.HotkeyListener;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.2.0";
+	private static final String PLUGIN_VERSION = "0.3.0";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 
@@ -101,6 +102,10 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private volatile boolean captureInProgress;
 	private boolean bankInterfaceOpen;
 	private long bankContextUntil;
+	private final CaptureActivityTracker captureActivityTracker = new CaptureActivityTracker();
+	private int ticksSinceAutomaticCapture;
+	private boolean automaticBankCapturePending;
+	private volatile int knownBankCaptureCount = -1;
 
 	private final HotkeyListener captureHotkeyListener = new HotkeyListener(() -> config.captureHotkey())
 	{
@@ -128,6 +133,18 @@ public class GielinorProfileSyncPlugin extends Plugin
 			return thread;
 		});
 		fileExecutor.execute(() -> previousSnapshot = exportStore.readLatest());
+		fileExecutor.execute(() ->
+		{
+			try
+			{
+				knownBankCaptureCount = CaptureBundle.countSceneTag(getCaptureRootDirectory(), "bank", gson);
+			}
+			catch (IOException e)
+			{
+				knownBankCaptureCount = 0;
+				log.debug("Could not inspect existing character capture tags.", e);
+			}
+		});
 		keyManager.registerKeyListener(captureHotkeyListener);
 		overlayManager.add(characterCaptureOverlay);
 		log.info("Gielinor Profile Sync started.");
@@ -165,6 +182,19 @@ public class GielinorProfileSyncPlugin extends Plugin
 		{
 			bankInterfaceOpen = false;
 			refreshBankContextWindow();
+			if (config.automaticCaptures() && knownBankCaptureCount >= 0 && knownBankCaptureCount < 2)
+			{
+				automaticBankCapturePending = true;
+			}
+		}
+	}
+
+	@Subscribe
+	public void onStatChanged(StatChanged event)
+	{
+		if (client.getGameState() == GameState.LOGGED_IN)
+		{
+			captureActivityTracker.observe(event.getSkill(), event.getXp(), System.currentTimeMillis());
 		}
 	}
 
@@ -202,10 +232,21 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 		ticksLoggedIn++;
 		ticksSinceExport++;
+		if (config.automaticCaptures())
+		{
+			ticksSinceAutomaticCapture++;
+		}
+		else
+		{
+			ticksSinceAutomaticCapture = 0;
+			automaticBankCapturePending = false;
+		}
 		if (ticksLoggedIn < LOGIN_SETTLE_TICKS)
 		{
 			return;
 		}
+
+		requestAutomaticCaptureIfDue();
 
 		int interval = Math.max(10, config.exportIntervalTicks());
 		if (ticksSinceExport < interval)
@@ -226,7 +267,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "containers", "grandExchange", "appearance", "playerModel", "characterCaptures"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "containers", "grandExchange", "appearance", "playerModel", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -430,7 +471,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		String captureId = UUID.randomUUID().toString();
 		Rectangle captureCrop = getCaptureCrop();
 		Map<String, Object> metadata = buildCaptureMetadata(captureId, trigger, localPlayer, captureCrop);
-		int retention = Math.max(3, Math.min(100, config.captureRetention()));
+		int retention = Math.max(30, Math.min(500, config.captureRetention()));
 		captureInProgress = true;
 
 		drawManager.requestNextFrameListener(image ->
@@ -441,7 +482,12 @@ public class GielinorProfileSyncPlugin extends Plugin
 				try
 				{
 					CaptureBundle.write(getCapturePendingDirectory(), captureId, image, captureCrop, metadata, gson);
-					CaptureBundle.prune(getCapturePendingDirectory(), retention);
+					CaptureBundle.pruneDiverse(getCapturePendingDirectory(), retention, gson);
+					Object rawContext = metadata.get("context");
+					if (rawContext instanceof Map && "bank".equals(((Map<?, ?>) rawContext).get("sceneTag")))
+					{
+						knownBankCaptureCount = Math.max(0, knownBankCaptureCount) + 1;
+					}
 					log.debug("Gielinor character history capture {} saved locally.", captureId);
 					clientThread.invokeLater(() -> client.addChatMessage(
 						ChatMessageType.GAMEMESSAGE,
@@ -484,11 +530,25 @@ public class GielinorProfileSyncPlugin extends Plugin
 		metadata.put("source", source);
 
 		boolean bankContext = System.currentTimeMillis() <= bankContextUntil;
+		int skillWindowMinutes = Math.max(1, Math.min(30, config.skillContextMinutes()));
+		String skillTag = captureActivityTracker.recentSkillTag(
+			System.currentTimeMillis(),
+			skillWindowMinutes * 60_000L
+		);
 		Map<String, Object> context = new LinkedHashMap<>();
 		context.put("trigger", trigger);
 		context.put("sceneTag", bankContext ? "bank" : "adventure");
 		context.put("bankContext", bankContext);
-		context.put("classification", bankContext ? "recent-bank-interface" : "unclassified");
+		context.put("classification", bankContext ? "recent-bank-interface" : skillTag == null ? "unclassified" : "recent-skill-activity");
+		if (skillTag != null)
+		{
+			context.put("skillTag", skillTag);
+		}
+		String locationTag = CaptureActivityTracker.coarseLocationTag(localPlayer.getWorldLocation());
+		if (locationTag != null)
+		{
+			context.put("locationTag", locationTag);
+		}
 		metadata.put("context", context);
 
 		Map<String, Object> camera = new LinkedHashMap<>();
@@ -526,6 +586,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		privacy.put("imageScope", "central-world-scene");
 		privacy.put("standardGameUiExcluded", true);
 		privacy.put("structuredExactLocationIncluded", false);
+		privacy.put("structuredCoarseRegionIncluded", locationTag != null);
 		privacy.put("structuredWorldNumberIncluded", false);
 		privacy.put("structuredNearbyPlayerNamesIncluded", false);
 		privacy.put("structuredChatIncluded", false);
@@ -554,6 +615,38 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private java.nio.file.Path getCapturePendingDirectory()
 	{
 		return new File(new File(new File(RuneLite.RUNELITE_DIR, CONFIG_GROUP), "captures"), "pending").toPath();
+	}
+
+	private java.nio.file.Path getCaptureRootDirectory()
+	{
+		return new File(new File(RuneLite.RUNELITE_DIR, CONFIG_GROUP), "captures").toPath();
+	}
+
+	private void requestAutomaticCaptureIfDue()
+	{
+		if (!config.automaticCaptures() || captureInProgress || bankInterfaceOpen || client.isMenuOpen())
+		{
+			return;
+		}
+		if (automaticBankCapturePending)
+		{
+			automaticBankCapturePending = false;
+			requestCharacterCapture("scheduled");
+			return;
+		}
+
+		int minutes = Math.max(15, Math.min(240, config.automaticCaptureMinutes()));
+		if (ticksSinceAutomaticCapture < minutes * 100)
+		{
+			return;
+		}
+		int skillWindowMinutes = Math.max(1, Math.min(30, config.skillContextMinutes()));
+		if (captureActivityTracker.recentSkillTag(System.currentTimeMillis(), skillWindowMinutes * 60_000L) == null)
+		{
+			return;
+		}
+		ticksSinceAutomaticCapture = 0;
+		requestCharacterCapture("scheduled");
 	}
 
 	private void refreshBankContextWindow()
@@ -853,6 +946,9 @@ public class GielinorProfileSyncPlugin extends Plugin
 		bankInterfaceOpen = false;
 		bankContextUntil = 0;
 		captureInProgress = false;
+		captureActivityTracker.reset();
+		ticksSinceAutomaticCapture = 0;
+		automaticBankCapturePending = false;
 	}
 
 	private void resetAccount(String rsn)
@@ -863,6 +959,9 @@ public class GielinorProfileSyncPlugin extends Plugin
 		lastGoodEquipment = null;
 		bankInterfaceOpen = false;
 		bankContextUntil = 0;
+		captureActivityTracker.reset();
+		ticksSinceAutomaticCapture = 0;
+		automaticBankCapturePending = false;
 		ticksSinceExport = Math.max(10, config.exportIntervalTicks());
 	}
 

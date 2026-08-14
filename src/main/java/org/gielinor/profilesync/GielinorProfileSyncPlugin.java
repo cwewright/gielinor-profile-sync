@@ -469,19 +469,47 @@ public class GielinorProfileSyncPlugin extends Plugin
 		}
 
 		String captureId = UUID.randomUUID().toString();
-		Rectangle captureCrop = getCaptureCrop();
-		Map<String, Object> metadata = buildCaptureMetadata(captureId, trigger, localPlayer, captureCrop);
+		int logicalCanvasWidth = Math.max(1, client.getCanvasWidth());
+		int logicalCanvasHeight = Math.max(1, client.getCanvasHeight());
+		Rectangle logicalCaptureCrop = getCaptureCrop(logicalCanvasWidth, logicalCanvasHeight);
+		Shape playerHull = localPlayer.getConvexHull();
+		Rectangle logicalPlayerBounds = playerHull == null ? null : playerHull.getBounds();
+		Map<String, Object> metadata = buildCaptureMetadata(captureId, trigger, localPlayer);
 		int retention = Math.max(30, Math.min(500, config.captureRetention()));
 		captureInProgress = true;
 
 		drawManager.requestNextFrameListener(image ->
 		{
 			captureInProgress = false;
+			Rectangle imageCaptureCrop;
+			try
+			{
+				imageCaptureCrop = CaptureBundle.prepareFrameMetadata(
+					metadata,
+					logicalCaptureCrop,
+					logicalPlayerBounds,
+					logicalCanvasWidth,
+					logicalCanvasHeight,
+					image.getWidth(null),
+					image.getHeight(null)
+				);
+			}
+			catch (IllegalArgumentException e)
+			{
+				log.warn("Could not prepare Gielinor character history capture {}.", captureId, e);
+				clientThread.invokeLater(() -> client.addChatMessage(
+					ChatMessageType.GAMEMESSAGE,
+					"",
+					"Gielinor Profile Sync could not prepare that scene; check the RuneLite log.",
+					null
+				));
+				return;
+			}
 			executor.execute(() ->
 			{
 				try
 				{
-					CaptureBundle.write(getCapturePendingDirectory(), captureId, image, captureCrop, metadata, gson);
+					CaptureBundle.write(getCapturePendingDirectory(), captureId, image, imageCaptureCrop, metadata, gson);
 					CaptureBundle.pruneDiverse(getCapturePendingDirectory(), retention, gson);
 					Object rawContext = metadata.get("context");
 					if (rawContext instanceof Map && "bank".equals(((Map<?, ?>) rawContext).get("sceneTag")))
@@ -513,8 +541,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private Map<String, Object> buildCaptureMetadata(
 		String captureId,
 		String trigger,
-		Player localPlayer,
-		Rectangle captureCrop
+		Player localPlayer
 	)
 	{
 		Map<String, Object> metadata = new LinkedHashMap<>();
@@ -555,12 +582,6 @@ public class GielinorProfileSyncPlugin extends Plugin
 		camera.put("yaw", client.getCameraYaw());
 		camera.put("pitch", client.getCameraPitch());
 		camera.put("scale", client.getScale());
-		camera.put("canvasWidth", client.getCanvasWidth());
-		camera.put("canvasHeight", client.getCanvasHeight());
-		camera.put("captureX", captureCrop.x);
-		camera.put("captureY", captureCrop.y);
-		camera.put("captureWidth", captureCrop.width);
-		camera.put("captureHeight", captureCrop.height);
 		metadata.put("camera", camera);
 
 		Map<String, Object> character = new LinkedHashMap<>();
@@ -573,14 +594,6 @@ public class GielinorProfileSyncPlugin extends Plugin
 		character.put("currentOrientation", localPlayer.getCurrentOrientation());
 		metadata.put("character", character);
 		metadata.put("appearance", buildAppearance(localPlayer));
-
-		Shape hull = localPlayer.getConvexHull();
-		Rectangle playerBounds = hull == null ? null : hull.getBounds();
-		if (playerBounds != null)
-		{
-			playerBounds.translate(-captureCrop.x, -captureCrop.y);
-		}
-		metadata.put("framing", CaptureBundle.buildFraming(playerBounds, captureCrop.width, captureCrop.height));
 
 		Map<String, Object> privacy = new LinkedHashMap<>();
 		privacy.put("imageScope", "central-world-scene");
@@ -596,13 +609,18 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	Rectangle getCaptureCrop()
 	{
+		return getCaptureCrop(client.getCanvasWidth(), client.getCanvasHeight());
+	}
+
+	private Rectangle getCaptureCrop(int canvasWidth, int canvasHeight)
+	{
 		return CaptureBundle.buildSafeCaptureCrop(
 			client.getViewportXOffset(),
 			client.getViewportYOffset(),
 			client.getViewportWidth(),
 			client.getViewportHeight(),
-			client.getCanvasWidth(),
-			client.getCanvasHeight(),
+			canvasWidth,
+			canvasHeight,
 			client.isResized()
 		);
 	}

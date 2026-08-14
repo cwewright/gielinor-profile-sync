@@ -69,6 +69,63 @@ final class CaptureBundle
 		return centralScene.intersection(viewport).intersection(canvas);
 	}
 
+	static Rectangle prepareFrameMetadata(
+		Map<String, Object> metadata,
+		Rectangle logicalCaptureCrop,
+		Rectangle logicalPlayerBounds,
+		int logicalCanvasWidth,
+		int logicalCanvasHeight,
+		int imageWidth,
+		int imageHeight
+	)
+	{
+		if (metadata == null)
+		{
+			throw new IllegalArgumentException("Capture metadata is required.");
+		}
+
+		Rectangle imageCaptureCrop = scaleCanvasRectangle(
+			logicalCaptureCrop,
+			logicalCanvasWidth,
+			logicalCanvasHeight,
+			imageWidth,
+			imageHeight,
+			true
+		);
+		Rectangle imagePlayerBounds = null;
+		if (logicalPlayerBounds != null && logicalPlayerBounds.width > 0 && logicalPlayerBounds.height > 0)
+		{
+			imagePlayerBounds = scaleCanvasRectangle(
+				logicalPlayerBounds,
+				logicalCanvasWidth,
+				logicalCanvasHeight,
+				imageWidth,
+				imageHeight,
+				false
+			);
+			imagePlayerBounds.translate(-imageCaptureCrop.x, -imageCaptureCrop.y);
+		}
+
+		Map<String, Object> camera = copyStringMap(metadata.get("camera"));
+		camera.put("logicalCanvasWidth", logicalCanvasWidth);
+		camera.put("logicalCanvasHeight", logicalCanvasHeight);
+		camera.put("logicalCaptureX", logicalCaptureCrop.x);
+		camera.put("logicalCaptureY", logicalCaptureCrop.y);
+		camera.put("logicalCaptureWidth", logicalCaptureCrop.width);
+		camera.put("logicalCaptureHeight", logicalCaptureCrop.height);
+		camera.put("canvasWidth", imageWidth);
+		camera.put("canvasHeight", imageHeight);
+		camera.put("captureX", imageCaptureCrop.x);
+		camera.put("captureY", imageCaptureCrop.y);
+		camera.put("captureWidth", imageCaptureCrop.width);
+		camera.put("captureHeight", imageCaptureCrop.height);
+		camera.put("pixelScaleX", round((double) imageWidth / logicalCanvasWidth));
+		camera.put("pixelScaleY", round((double) imageHeight / logicalCanvasHeight));
+		metadata.put("camera", camera);
+		metadata.put("framing", buildFraming(imagePlayerBounds, imageCaptureCrop.width, imageCaptureCrop.height));
+		return imageCaptureCrop;
+	}
+
 	static Map<String, Object> buildFraming(Rectangle playerBounds, int imageWidth, int imageHeight)
 	{
 		Map<String, Object> framing = new LinkedHashMap<>();
@@ -436,6 +493,83 @@ final class CaptureBundle
 		{
 			return Long.MIN_VALUE;
 		}
+	}
+
+	private static Rectangle scaleCanvasRectangle(
+		Rectangle logicalBounds,
+		int logicalCanvasWidth,
+		int logicalCanvasHeight,
+		int imageWidth,
+		int imageHeight,
+		boolean clampToImage
+	)
+	{
+		if (logicalCanvasWidth <= 0 || logicalCanvasHeight <= 0 || imageWidth <= 0 || imageHeight <= 0)
+		{
+			throw new IllegalArgumentException("Canvas and screenshot dimensions must be positive.");
+		}
+		if (logicalBounds == null || logicalBounds.width <= 0 || logicalBounds.height <= 0)
+		{
+			throw new IllegalArgumentException("Capture bounds must be positive.");
+		}
+
+		long logicalRight = (long) logicalBounds.x + logicalBounds.width;
+		long logicalBottom = (long) logicalBounds.y + logicalBounds.height;
+		long left = scaleEdge(logicalBounds.x, logicalCanvasWidth, imageWidth);
+		long top = scaleEdge(logicalBounds.y, logicalCanvasHeight, imageHeight);
+		long right = scaleEdge(logicalRight, logicalCanvasWidth, imageWidth);
+		long bottom = scaleEdge(logicalBottom, logicalCanvasHeight, imageHeight);
+
+		if (clampToImage)
+		{
+			left = clamp(left, 0, imageWidth);
+			right = clamp(right, 0, imageWidth);
+			top = clamp(top, 0, imageHeight);
+			bottom = clamp(bottom, 0, imageHeight);
+		}
+		if (right <= left || bottom <= top)
+		{
+			throw new IllegalArgumentException("Capture bounds do not intersect the screenshot.");
+		}
+		if (left < Integer.MIN_VALUE || top < Integer.MIN_VALUE
+			|| right > Integer.MAX_VALUE || bottom > Integer.MAX_VALUE)
+		{
+			throw new IllegalArgumentException("Scaled capture bounds exceed supported image coordinates.");
+		}
+
+		long width = right - left;
+		long height = bottom - top;
+		if (width > Integer.MAX_VALUE || height > Integer.MAX_VALUE)
+		{
+			throw new IllegalArgumentException("Scaled capture dimensions exceed supported image dimensions.");
+		}
+		return new Rectangle((int) left, (int) top, (int) width, (int) height);
+	}
+
+	private static long scaleEdge(long logicalEdge, int logicalExtent, int imageExtent)
+	{
+		return Math.round((double) logicalEdge * imageExtent / logicalExtent);
+	}
+
+	private static long clamp(long value, long minimum, long maximum)
+	{
+		return Math.max(minimum, Math.min(maximum, value));
+	}
+
+	private static Map<String, Object> copyStringMap(Object rawValue)
+	{
+		Map<String, Object> copy = new LinkedHashMap<>();
+		if (rawValue instanceof Map)
+		{
+			for (Map.Entry<?, ?> entry : ((Map<?, ?>) rawValue).entrySet())
+			{
+				if (entry.getKey() instanceof String)
+				{
+					copy.put((String) entry.getKey(), entry.getValue());
+				}
+			}
+		}
+		return copy;
 	}
 
 	private static double round(double value)

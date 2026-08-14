@@ -20,7 +20,10 @@ sync process associates a pending bundle with its authenticated profile.
 - `context.sceneTag`: broad `bank` or `adventure` scene tag
 - `context.skillTag`: optional skill name derived from a recent XP increase
 - `context.locationTag`: optional `region-<id>` tag for a coarse 64-by-64 map region
-- `camera`: yaw, pitch, scale and capture-frame dimensions
+- `camera`: yaw, pitch, scale and capture-frame dimensions. Pixel fields use the
+  delivered screenshot coordinate space; `logical*` fields retain RuneLite's
+  canvas coordinates, and `pixelScaleX`/`pixelScaleY` record independent display
+  scaling. `camera.captureWidth` and `camera.captureHeight` match the saved PNG.
 - `character`: animation, pose frame and orientation at capture time
 - `appearance`: equipment/kit descriptor, stable fingerprint and compact model
 - `framing`: pixel and normalized character bounds, quality and suggestions

@@ -41,6 +41,131 @@ public class CaptureBundleTest
 	}
 
 	@Test
+	@SuppressWarnings("unchecked")
+	public void keepsLogicalCoordinatesAtOneHundredPercentScaling()
+	{
+		Map<String, Object> metadata = metadataWithCamera();
+		Rectangle crop = CaptureBundle.prepareFrameMetadata(
+			metadata,
+			new Rectangle(100, 80, 800, 600),
+			new Rectangle(440, 250, 120, 240),
+			1000,
+			800,
+			1000,
+			800
+		);
+
+		assertEquals(new Rectangle(100, 80, 800, 600), crop);
+		Map<String, Object> camera = (Map<String, Object>) metadata.get("camera");
+		assertEquals(512, camera.get("yaw"));
+		assertEquals(1000, camera.get("canvasWidth"));
+		assertEquals(800, camera.get("canvasHeight"));
+		assertEquals(800, camera.get("captureWidth"));
+		assertEquals(600, camera.get("captureHeight"));
+		assertEquals(1.0, camera.get("pixelScaleX"));
+		assertEquals(1.0, camera.get("pixelScaleY"));
+
+		Map<String, Object> framing = (Map<String, Object>) metadata.get("framing");
+		Map<String, Object> pixels = (Map<String, Object>) framing.get("pixels");
+		assertEquals(340, pixels.get("x"));
+		assertEquals(170, pixels.get("y"));
+		assertEquals(120, pixels.get("width"));
+		assertEquals(240, pixels.get("height"));
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	public void scalesCropAndMetadataToOneHundredFiftyPercentPixels() throws Exception
+	{
+		Path pending = temporaryFolder.newFolder("hidpi-150").toPath();
+		Map<String, Object> metadata = metadataWithCamera();
+		Rectangle crop = CaptureBundle.prepareFrameMetadata(
+			metadata,
+			new Rectangle(100, 80, 800, 600),
+			new Rectangle(440, 250, 120, 240),
+			1000,
+			800,
+			1500,
+			1200
+		);
+
+		assertEquals(new Rectangle(150, 120, 1200, 900), crop);
+		CaptureBundle.write(pending, "hidpi-capture", new BufferedImage(1500, 1200, BufferedImage.TYPE_INT_RGB), crop, metadata, new Gson());
+
+		Map<String, Object> parsed = new Gson().fromJson(
+			Files.readString(pending.resolve("hidpi-capture.json")),
+			Map.class
+		);
+		Map<String, Object> image = (Map<String, Object>) parsed.get("image");
+		Map<String, Object> camera = (Map<String, Object>) parsed.get("camera");
+		Map<String, Object> framing = (Map<String, Object>) parsed.get("framing");
+		Map<String, Object> pixels = (Map<String, Object>) framing.get("pixels");
+		assertEquals(1200.0, image.get("width"));
+		assertEquals(900.0, image.get("height"));
+		assertEquals(image.get("width"), camera.get("captureWidth"));
+		assertEquals(image.get("height"), camera.get("captureHeight"));
+		assertEquals(1.5, camera.get("pixelScaleX"));
+		assertEquals(1.5, camera.get("pixelScaleY"));
+		assertEquals(510.0, pixels.get("x"));
+		assertEquals(255.0, pixels.get("y"));
+		assertEquals(180.0, pixels.get("width"));
+		assertEquals(360.0, pixels.get("height"));
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	public void scalesHorizontalAndVerticalEdgesIndependently()
+	{
+		Map<String, Object> metadata = metadataWithCamera();
+		Rectangle crop = CaptureBundle.prepareFrameMetadata(
+			metadata,
+			new Rectangle(101, 81, 799, 599),
+			new Rectangle(441, 251, 119, 239),
+			1000,
+			800,
+			2000,
+			1200
+		);
+
+		assertEquals(new Rectangle(202, 122, 1598, 898), crop);
+		Map<String, Object> camera = (Map<String, Object>) metadata.get("camera");
+		assertEquals(2.0, camera.get("pixelScaleX"));
+		assertEquals(1.5, camera.get("pixelScaleY"));
+		Map<String, Object> framing = (Map<String, Object>) metadata.get("framing");
+		Map<String, Object> pixels = (Map<String, Object>) framing.get("pixels");
+		assertEquals(680, pixels.get("x"));
+		assertEquals(255, pixels.get("y"));
+		assertEquals(238, pixels.get("width"));
+		assertEquals(358, pixels.get("height"));
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	public void clampsCropButPreservesOutOfFramePlayerBounds()
+	{
+		Map<String, Object> metadata = metadataWithCamera();
+		Rectangle crop = CaptureBundle.prepareFrameMetadata(
+			metadata,
+			new Rectangle(-100, -50, 1200, 900),
+			new Rectangle(-20, 100, 1040, 300),
+			1000,
+			800,
+			1500,
+			1200
+		);
+
+		assertEquals(new Rectangle(0, 0, 1500, 1200), crop);
+		Map<String, Object> framing = (Map<String, Object>) metadata.get("framing");
+		Map<String, Object> pixels = (Map<String, Object>) framing.get("pixels");
+		assertEquals(-30, pixels.get("x"));
+		assertEquals(150, pixels.get("y"));
+		assertEquals(1560, pixels.get("width"));
+		assertEquals(450, pixels.get("height"));
+		assertEquals(Boolean.FALSE, framing.get("fullyVisible"));
+		assertEquals("poor", framing.get("quality"));
+	}
+
+	@Test
 	public void ratesCenteredVisibleCharacterAsGood()
 	{
 		Map<String, Object> framing = CaptureBundle.buildFraming(new Rectangle(400, 150, 200, 300), 1000, 800);
@@ -170,5 +295,14 @@ public class CaptureBundleTest
 			}
 		}
 		return image;
+	}
+
+	private Map<String, Object> metadataWithCamera()
+	{
+		Map<String, Object> camera = new LinkedHashMap<>();
+		camera.put("yaw", 512);
+		Map<String, Object> metadata = new LinkedHashMap<>();
+		metadata.put("camera", camera);
+		return metadata;
 	}
 }

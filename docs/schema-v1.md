@@ -41,3 +41,9 @@ shown with their model colour when a consumer does not ship game textures.
 The appearance section is not a screenshot and never contains credentials or
 location data. A website should let the player explicitly choose when a newly
 exported look replaces their saved avatar.
+
+## Character history captures
+
+`characterCaptures` in `capabilities` means the plugin can create separate,
+user-triggered PNG/JSON bundles. These captures are not embedded in
+`latest.json`; see `capture-schema-v1.md`.

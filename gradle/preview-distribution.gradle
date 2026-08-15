@@ -1,0 +1,377 @@
+import groovy.json.JsonOutput
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.security.MessageDigest
+import java.util.jar.JarFile
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.result.ResolvedArtifactResult
+import org.gradle.maven.MavenModule
+import org.gradle.maven.MavenPomArtifact
+
+sourceSets {
+	preview {
+		java.srcDir 'src/preview/java'
+		compileClasspath += sourceSets.main.output
+		runtimeClasspath += sourceSets.main.output
+	}
+}
+
+configurations {
+	previewImplementation.extendsFrom implementation
+	previewRuntimeOnly.extendsFrom runtimeOnly
+}
+
+dependencies {
+	previewImplementation group: 'net.runelite', name: 'client', version: runeLiteVersion
+}
+
+def previewRootName = "${rootProject.name}-preview-${project.version}"
+def previewJarFileName = "${rootProject.name}-preview-${project.version}.jar"
+def generatedPreviewDirectory = layout.buildDirectory.dir('generated/preview-distribution')
+def preparedPreviewDirectory = layout.buildDirectory.dir('preview-distribution')
+def preparedPreviewBootstrapDirectory = layout.buildDirectory.dir('preview-bootstrap-distribution')
+def previewArchiveDirectory = providers.gradleProperty('previewArchiveDirectory').getOrElse('distributions')
+def previewBootstrapRootName = "${rootProject.name}-preview-bootstrap-${project.version}"
+
+def sha256 = { File file ->
+	MessageDigest digest = MessageDigest.getInstance('SHA-256')
+	file.withInputStream { stream ->
+		byte[] buffer = new byte[65536]
+		int count
+		while ((count = stream.read(buffer)) != -1) {
+			digest.update(buffer, 0, count)
+		}
+	}
+	digest.digest().collect { String.format('%02x', it & 0xff) }.join()
+}
+
+def previewArtifacts = {
+	configurations.previewRuntimeClasspath.resolvedConfiguration.resolvedArtifacts
+		.findAll { artifact ->
+			String name = artifact.file.name
+			!name.contains('-natives-linux') &&
+				!name.contains('-natives-macos') &&
+				!name.contains('-natives-windows-arm64') &&
+				!name.contains('-natives-windows-x86')
+		}
+		.collect { artifact ->
+			def id = artifact.moduleVersion.id
+			String repository = id.group.startsWith('net.runelite')
+				? 'https://repo.runelite.net'
+				: 'https://repo1.maven.org/maven2'
+			[
+				coordinate: "${id.group}:${id.name}:${id.version}",
+				componentId: artifact.id.componentIdentifier,
+				file: artifact.file,
+				downloadUrl: "${repository}/${id.group.replace('.', '/')}/${id.name}/${id.version}/${artifact.file.name}"
+			]
+		}
+		.sort { left, right -> left.coordinate <=> right.coordinate ?: left.file.name <=> right.file.name }
+}
+
+tasks.register('previewJar', Jar) {
+	dependsOn tasks.named('classes'), tasks.named('previewClasses')
+	archiveFileName.set(previewJarFileName)
+	destinationDirectory.set(layout.buildDirectory.dir('preview-libs'))
+	preserveFileTimestamps = false
+	reproducibleFileOrder = true
+	duplicatesStrategy = DuplicatesStrategy.FAIL
+
+	from sourceSets.main.output
+	from sourceSets.preview.output
+
+	doFirst {
+		def dependencyNames = previewArtifacts().collect { it.file.name }
+		if (dependencyNames.size() != dependencyNames.toSet().size()) {
+			throw new GradleException('Preview runtime dependencies contain duplicate file names.')
+		}
+		manifest.attributes(
+			'Main-Class': previewMainClass,
+			'Class-Path': dependencyNames.join(' '),
+			'Gielinor-Profile-Sync-Version': project.version,
+			'RuneLite-Version': runeLiteVersion,
+			'Build-Java-Version': '11'
+		)
+	}
+}
+
+tasks.register('generatePreviewMetadata') {
+	dependsOn tasks.named('previewJar')
+	inputs.files(configurations.previewRuntimeClasspath)
+	inputs.file(tasks.named('previewJar').flatMap { it.archiveFile })
+	inputs.file(file('LICENSE'))
+	inputs.property('previewVersion', project.version.toString())
+	inputs.property('runeLiteVersion', runeLiteVersion.toString())
+	outputs.dir(generatedPreviewDirectory)
+
+	doLast {
+		File outputDirectory = generatedPreviewDirectory.get().asFile
+		project.delete(outputDirectory)
+		File legalDirectory = new File(outputDirectory, 'legal/dependencies')
+		legalDirectory.mkdirs()
+
+		def artifacts = previewArtifacts()
+		def forbidden = artifacts.findAll {
+			it.coordinate.startsWith('junit:') || it.coordinate.startsWith('org.hamcrest:')
+		}
+		if (!forbidden.empty) {
+			throw new GradleException("Test-only dependencies entered the preview runtime: ${forbidden*.coordinate.join(', ')}")
+		}
+
+		def componentIds = artifacts.collect { it.componentId }
+			.findAll { it instanceof ModuleComponentIdentifier }
+			.toSet()
+		def pomFiles = [:]
+		if (!componentIds.empty) {
+			def pomResults = dependencies.createArtifactResolutionQuery()
+				.forComponents(componentIds)
+				.withArtifacts(MavenModule, MavenPomArtifact)
+				.execute()
+			pomResults.resolvedComponents.each { component ->
+				def coordinate = "${component.id.group}:${component.id.module}:${component.id.version}"
+				component.getArtifacts(MavenPomArtifact)
+					.findAll { it instanceof ResolvedArtifactResult }
+					.each { pomFiles[coordinate] = it.file }
+			}
+		}
+
+		def dependencyRows = artifacts.collect { artifact ->
+			String artifactSha256 = sha256(artifact.file)
+			String legalDirectoryName = artifactSha256.substring(0, 16)
+			File dependencyLegalDirectory = new File(legalDirectory, legalDirectoryName)
+			File embeddedLegalDirectory = new File(dependencyLegalDirectory, 'embedded')
+			def embeddedLegalFiles = []
+
+			JarFile jar = new JarFile(artifact.file)
+			try {
+				jar.entries().toList()
+					.findAll { entry ->
+						!entry.directory && entry.name ==~ /(?i)(?:^|.*\/)(?:LICENSE|NOTICE|COPYING|COPYRIGHT)(?:[._-].*)?/
+					}
+					.sort { left, right -> left.name <=> right.name }
+					.each { entry ->
+						String legalFileName = entry.name.replaceAll('[^A-Za-z0-9._-]+', '_')
+						File target = new File(embeddedLegalDirectory, legalFileName)
+						File canonicalRoot = embeddedLegalDirectory.canonicalFile
+						File canonicalTarget = target.canonicalFile
+						if (!canonicalTarget.toPath().startsWith(canonicalRoot.toPath())) {
+							throw new GradleException("Unsafe legal-resource path in ${artifact.file.name}: ${entry.name}")
+						}
+						canonicalTarget.parentFile.mkdirs()
+						jar.getInputStream(entry).withCloseable { input ->
+							canonicalTarget.withOutputStream { output -> output << input }
+						}
+						embeddedLegalFiles << "legal/dependencies/${legalDirectoryName}/embedded/${legalFileName}"
+					}
+			} finally {
+				jar.close()
+			}
+
+			File pom = pomFiles[artifact.coordinate]
+			String pomRelativePath = null
+			if (pom != null && pom.isFile()) {
+				dependencyLegalDirectory.mkdirs()
+				File targetPom = new File(dependencyLegalDirectory, 'pom.xml')
+				Files.copy(pom.toPath(), targetPom.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+				pomRelativePath = "legal/dependencies/${legalDirectoryName}/pom.xml"
+			}
+
+			[
+				coordinate: artifact.coordinate,
+				file: artifact.file.name,
+				downloadUrl: artifact.downloadUrl,
+				sha256: artifactSha256,
+				sizeBytes: artifact.file.length(),
+				pom: pomRelativePath,
+				embeddedLegalFiles: embeddedLegalFiles
+			]
+		}
+
+		File previewJar = tasks.named('previewJar').get().archiveFile.get().asFile
+		def manifest = [
+			schemaVersion: 1,
+			name: 'Gielinor Profile Sync developer preview',
+			version: project.version.toString(),
+			operatingSystem: 'windows',
+			architecture: 'x64',
+			javaRuntimeMajor: 11,
+			runeLiteVersion: runeLiteVersion.toString(),
+			mainClass: previewMainClass.toString(),
+			clientArguments: ['--developer-mode', '--debug', '--profile', 'gielinor-profile-sync-preview'],
+			applicationJar: [
+				file: previewJar.name,
+				sha256: sha256(previewJar),
+				sizeBytes: previewJar.length()
+			],
+			dependencies: dependencyRows
+		]
+		String manifestJson = JsonOutput.prettyPrint(JsonOutput.toJson(manifest)).replace('\r\n', '\n') + '\n'
+		Files.write(new File(outputDirectory, 'PREVIEW-MANIFEST.json').toPath(), manifestJson.getBytes(StandardCharsets.UTF_8))
+
+		File bootstrapOutputDirectory = new File(outputDirectory, 'bootstrap')
+		bootstrapOutputDirectory.mkdirs()
+		String bootstrapNotices = '''Gielinor Profile Sync developer-preview bootstrap
+==================================================
+
+This bootstrap contains only Gielinor Profile Sync code and its BSD 2-Clause
+license. It does not redistribute RuneLite, the injected game client, native
+libraries, or any other third-party dependency.
+
+The installer downloads each exact dependency from RuneLite's official Maven
+repository or Maven Central in the user's context, then verifies its byte size
+and SHA-256 against PREVIEW-MANIFEST.json before it can be launched. A failed
+or mismatched download must be rejected. Third-party terms are provided by the
+upstream repositories and remain applicable to the downloaded components.
+'''.replace('\r\n', '\n')
+		File bootstrapNoticesFile = new File(bootstrapOutputDirectory, 'BOOTSTRAP-NOTICES.txt')
+		Files.write(bootstrapNoticesFile.toPath(), bootstrapNotices.getBytes(StandardCharsets.UTF_8))
+
+		File projectLicense = file('LICENSE')
+		def bootstrapManifest = [
+			schemaVersion: 1,
+			name: 'Gielinor Profile Sync developer-preview bootstrap',
+			version: project.version.toString(),
+			distributionMode: 'verified-download',
+			operatingSystem: 'windows',
+			architecture: 'x64',
+			javaRuntimeMajor: 11,
+			runeLiteVersion: runeLiteVersion.toString(),
+			mainClass: previewMainClass.toString(),
+			clientArguments: ['--developer-mode', '--debug', '--profile', 'gielinor-profile-sync-preview'],
+			applicationJar: [
+				file: previewJar.name,
+				sha256: sha256(previewJar),
+				sizeBytes: previewJar.length()
+			],
+			bootstrapFiles: [
+				[
+					file: 'BOOTSTRAP-NOTICES.txt',
+					sha256: sha256(bootstrapNoticesFile),
+					sizeBytes: bootstrapNoticesFile.length()
+				],
+				[
+					file: 'legal/GIELINOR-PROFILE-SYNC-LICENSE.txt',
+					sha256: sha256(projectLicense),
+					sizeBytes: projectLicense.length()
+				]
+			],
+			dependencies: dependencyRows.collect { dependency ->
+				[
+					coordinate: dependency.coordinate,
+					file: dependency.file,
+					downloadUrl: dependency.downloadUrl,
+					sha256: dependency.sha256,
+					sizeBytes: dependency.sizeBytes
+				]
+			}
+		]
+		String bootstrapManifestJson = JsonOutput.prettyPrint(JsonOutput.toJson(bootstrapManifest)).replace('\r\n', '\n') + '\n'
+		Files.write(new File(bootstrapOutputDirectory, 'PREVIEW-MANIFEST.json').toPath(), bootstrapManifestJson.getBytes(StandardCharsets.UTF_8))
+
+		def notices = new StringBuilder()
+		notices.append('Gielinor Profile Sync developer preview - third-party inventory\n')
+		notices.append('================================================================\n\n')
+		notices.append('Dependencies are distributed as separate, unmodified JAR files. Embedded license and notice files remain inside each JAR and are also copied below legal/dependencies when present. Maven POM files are included beside them to preserve upstream project and license metadata.\n\n')
+		dependencyRows.each { dependency ->
+			notices.append("- ${dependency.coordinate}\n")
+			notices.append("  file: ${dependency.file}\n")
+			notices.append("  sha256: ${dependency.sha256}\n")
+			notices.append("  pom: ${dependency.pom ?: 'not published by the resolved repository'}\n")
+			notices.append("  extracted legal resources: ${dependency.embeddedLegalFiles.empty ? 'none' : dependency.embeddedLegalFiles.join(', ')}\n")
+		}
+		Files.write(new File(outputDirectory, 'THIRD-PARTY-NOTICES.txt').toPath(), notices.toString().getBytes(StandardCharsets.UTF_8))
+	}
+}
+
+tasks.register('preparePreviewDistribution', Sync) {
+	dependsOn tasks.named('generatePreviewMetadata')
+	into(preparedPreviewDirectory)
+	duplicatesStrategy = DuplicatesStrategy.FAIL
+
+	from('distribution/preview')
+	into('Preview/lib') {
+		from(tasks.named('previewJar'))
+		from { previewArtifacts()*.file }
+	}
+	into('Preview') {
+		from(generatedPreviewDirectory) {
+			exclude 'bootstrap/**', 'legal/**'
+		}
+	}
+	into('Preview/legal') {
+		from('LICENSE') {
+			rename { 'GIELINOR-PROFILE-SYNC-LICENSE.txt' }
+		}
+		from(generatedPreviewDirectory.map { it.dir('legal') })
+	}
+}
+
+tasks.register('previewDistZip', Zip) {
+	dependsOn tasks.named('preparePreviewDistribution')
+	group = BasePlugin.BUILD_GROUP
+	description = 'Builds the deterministic Java 11 developer-preview distribution.'
+	archiveFileName.set("${previewRootName}.zip")
+	destinationDirectory.set(layout.buildDirectory.dir(previewArchiveDirectory))
+	preserveFileTimestamps = false
+	reproducibleFileOrder = true
+	duplicatesStrategy = DuplicatesStrategy.FAIL
+	from(preparedPreviewDirectory) {
+		into(previewRootName)
+	}
+}
+
+tasks.register('preparePreviewBootstrapDistribution', Sync) {
+	dependsOn tasks.named('generatePreviewMetadata')
+	into(preparedPreviewBootstrapDirectory)
+	duplicatesStrategy = DuplicatesStrategy.FAIL
+
+	into('Preview/lib') {
+		from(tasks.named('previewJar'))
+	}
+	into('Preview') {
+		from(generatedPreviewDirectory.map { it.dir('bootstrap') })
+	}
+	into('Preview/legal') {
+		from('LICENSE') {
+			rename { 'GIELINOR-PROFILE-SYNC-LICENSE.txt' }
+		}
+	}
+}
+
+tasks.register('previewBootstrapZip', Zip) {
+	dependsOn tasks.named('preparePreviewBootstrapDistribution')
+	group = BasePlugin.BUILD_GROUP
+	description = 'Builds the deterministic download-and-verify preview bootstrap.'
+	archiveFileName.set("${previewBootstrapRootName}.zip")
+	destinationDirectory.set(layout.buildDirectory.dir(previewArchiveDirectory))
+	preserveFileTimestamps = false
+	reproducibleFileOrder = true
+	duplicatesStrategy = DuplicatesStrategy.FAIL
+	from(preparedPreviewBootstrapDirectory) {
+		into(previewBootstrapRootName)
+	}
+}
+
+tasks.register('run', JavaExec) {
+	dependsOn tasks.named('previewClasses')
+	classpath = sourceSets.preview.runtimeClasspath
+	mainClass = previewMainClass
+	jvmArgs '-ea'
+	args '--developer-mode', '--debug', '--profile', 'gielinor-profile-sync-preview'
+}
+
+tasks.named('assemble') {
+	dependsOn tasks.named('previewDistZip'), tasks.named('previewBootstrapZip')
+}
+
+tasks.named('test') {
+	dependsOn tasks.named('previewDistZip'), tasks.named('previewBootstrapZip')
+	doFirst {
+		systemProperty 'gielinor.preview.zip', tasks.named('previewDistZip').get().archiveFile.get().asFile.absolutePath
+		systemProperty 'gielinor.preview.root', previewRootName
+		systemProperty 'gielinor.preview.jar', previewJarFileName
+		systemProperty 'gielinor.preview.runelite', runeLiteVersion.toString()
+		systemProperty 'gielinor.preview.bootstrap.zip', tasks.named('previewBootstrapZip').get().archiveFile.get().asFile.absolutePath
+		systemProperty 'gielinor.preview.bootstrap.root', previewBootstrapRootName
+	}
+}

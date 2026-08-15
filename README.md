@@ -68,5 +68,39 @@ Run the RuneLite development client with:
 gradlew.bat run
 ```
 
+### Windows developer-preview bootstrap
+
+The releaseable pre-Plugin-Hub Windows bootstrap contains only the thin
+Gielinor Profile Sync application JAR, its BSD license, bootstrap notices and a
+download manifest. The installer obtains each exact RuneLite/runtime dependency
+from RuneLite's official Maven repository or Maven Central in the user's
+context and must verify its pinned size and SHA-256 before launch. No JUnit,
+Hamcrest, test output, RuneLite JAR or native library is redistributed in this
+ZIP. Build it deterministically with Java 11:
+
+```text
+gradlew.bat clean test previewBootstrapZip
+```
+
+The artifact is written to:
+
+```text
+build\distributions\gielinor-profile-sync-preview-bootstrap-0.3.1.zip
+```
+
+Verify its exact four-file boundary, manifest, hashes, download origins and
+thin-JAR class boundary with Windows PowerShell 5.1:
+
+```text
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Verify-PreviewBootstrap.ps1 -Path .\build\distributions\gielinor-profile-sync-preview-bootstrap-0.3.1.zip
+```
+
+The preview starts a separate RuneLite profile named
+`gielinor-profile-sync-preview`; it does not install code into normal RuneLite.
+The complete `previewDistZip` with third-party JARs remains available strictly
+for private/local validation. Do not publish or embed that full ZIP: the
+redistribution rights for RuneLite's injected client and rlicn native payload
+are not established by their artifact metadata.
+
 See [docs/schema-v1.md](docs/schema-v1.md) for the stable profile contract and
 [docs/capture-schema-v1.md](docs/capture-schema-v1.md) for history bundles.

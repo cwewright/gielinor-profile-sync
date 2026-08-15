@@ -59,7 +59,7 @@ import net.runelite.client.util.HotkeyListener;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.3.0";
+	private static final String PLUGIN_VERSION = "0.3.1";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 

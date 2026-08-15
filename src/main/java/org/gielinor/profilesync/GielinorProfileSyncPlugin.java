@@ -59,9 +59,10 @@ import net.runelite.client.util.HotkeyListener;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.3.1";
+	private static final String PLUGIN_VERSION = "0.3.2";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
+	private static final int MODEL_SAMPLE_INTERVAL_TICKS = 10;
 
 	@Inject
 	private Client client;
@@ -106,6 +107,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private int ticksSinceAutomaticCapture;
 	private boolean automaticBankCapturePending;
 	private volatile int knownBankCaptureCount = -1;
+	private final PlayerModelVariantLibrary modelVariantLibrary = new PlayerModelVariantLibrary();
+	private int ticksSinceModelSample;
 
 	private final HotkeyListener captureHotkeyListener = new HotkeyListener(() -> config.captureHotkey())
 	{
@@ -232,6 +235,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 		ticksLoggedIn++;
 		ticksSinceExport++;
+		ticksSinceModelSample++;
 		if (config.automaticCaptures())
 		{
 			ticksSinceAutomaticCapture++;
@@ -244,6 +248,11 @@ public class GielinorProfileSyncPlugin extends Plugin
 		if (ticksLoggedIn < LOGIN_SETTLE_TICKS)
 		{
 			return;
+		}
+		if (ticksSinceModelSample >= MODEL_SAMPLE_INTERVAL_TICKS)
+		{
+			ticksSinceModelSample = 0;
+			observePlayerModel(player);
 		}
 
 		requestAutomaticCaptureIfDue();
@@ -267,7 +276,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "containers", "grandExchange", "appearance", "playerModel", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "containers", "grandExchange", "appearance", "playerModel", "playerModelVariants", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -385,14 +394,18 @@ public class GielinorProfileSyncPlugin extends Plugin
 		appearance.put("colors", toIntegerList(colors));
 		appearance.put("equipmentIds", toIntegerList(equipmentIds));
 		appearance.put("transformedNpcId", transformedNpcId);
-		appearance.put(
-			"fingerprint",
-			String.format("%08x-%08x-%d-%d", Arrays.hashCode(equipmentIds), Arrays.hashCode(colors), gender, transformedNpcId)
-		);
+		String fingerprint = appearanceFingerprint(equipmentIds, colors, gender, transformedNpcId);
+		appearance.put("fingerprint", fingerprint);
 		Map<String, Object> model = PlayerModelSnapshot.from(player.getModel());
 		if (model != null)
 		{
+			modelVariantLibrary.observe(fingerprint, modelPoseKind(player), model);
 			appearance.put("model", model);
+			List<Map<String, Object>> modelVariants = modelVariantLibrary.variantsFor(fingerprint, model);
+			if (!modelVariants.isEmpty())
+			{
+				appearance.put("modelVariants", modelVariants);
+			}
 		}
 
 		Map<String, Object> slots = new LinkedHashMap<>();
@@ -420,6 +433,43 @@ public class GielinorProfileSyncPlugin extends Plugin
 		}
 		appearance.put("slots", slots);
 		return appearance;
+	}
+
+	private void observePlayerModel(Player player)
+	{
+		PlayerComposition composition = player.getPlayerComposition();
+		if (composition == null)
+		{
+			return;
+		}
+		Map<String, Object> model = PlayerModelSnapshot.poseFrom(player.getModel());
+		if (model == null)
+		{
+			return;
+		}
+		modelVariantLibrary.observe(
+			appearanceFingerprint(
+				composition.getEquipmentIds(),
+				composition.getColors(),
+				composition.getGender(),
+				composition.getTransformedNpcId()),
+			modelPoseKind(player),
+			model
+		);
+	}
+
+	private String appearanceFingerprint(int[] equipmentIds, int[] colors, int gender, int transformedNpcId)
+	{
+		return String.format("%08x-%08x-%d-%d", Arrays.hashCode(equipmentIds), Arrays.hashCode(colors), gender, transformedNpcId);
+	}
+
+	private String modelPoseKind(Player player)
+	{
+		if (player.getAnimation() != -1)
+		{
+			return "activity";
+		}
+		return player.getPoseAnimation() != player.getIdlePoseAnimation() ? "movement" : "idle";
 	}
 
 	private List<Integer> toIntegerList(int[] values)
@@ -967,6 +1017,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 		captureActivityTracker.reset();
 		ticksSinceAutomaticCapture = 0;
 		automaticBankCapturePending = false;
+		ticksSinceModelSample = 0;
+		modelVariantLibrary.reset();
 	}
 
 	private void resetAccount(String rsn)
@@ -980,6 +1032,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 		captureActivityTracker.reset();
 		ticksSinceAutomaticCapture = 0;
 		automaticBankCapturePending = false;
+		ticksSinceModelSample = MODEL_SAMPLE_INTERVAL_TICKS;
+		modelVariantLibrary.reset();
 		ticksSinceExport = Math.max(10, config.exportIntervalTicks());
 	}
 

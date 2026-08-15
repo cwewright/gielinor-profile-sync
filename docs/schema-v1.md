@@ -38,6 +38,13 @@ included. Consumers can rotate and project this mesh without downloading game
 models or sending appearance data to a rendering service. Textured faces may be
 shown with their model colour when a consumer does not ship game textures.
 
+After normal play provides distinct rendered stances, `appearance.modelVariants`
+may contain up to four additional sets of vertex positions. Each variant keeps
+the current model's topology and colours, and carries only a coarse `idle`,
+`movement`, or `activity` label. Animation identifiers, locations, timestamps,
+and gameplay telemetry are not included. Consumers must continue to support the
+single `appearance.model` fallback.
+
 The appearance section is not a screenshot and never contains credentials or
 location data. A website should let the player explicitly choose when a newly
 exported look replaces their saved avatar.

@@ -28,16 +28,20 @@ import net.runelite.api.Player;
 import net.runelite.api.PlayerComposition;
 import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
+import net.runelite.api.ScriptID;
 import net.runelite.api.Skill;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
+import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.kit.KitType;
+import net.runelite.api.widgets.Widget;
 import net.runelite.client.RuneLite;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
@@ -49,6 +53,7 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.DrawManager;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.HotkeyListener;
+import net.runelite.client.util.Text;
 
 @Slf4j
 @PluginDescriptor(
@@ -59,9 +64,17 @@ import net.runelite.client.util.HotkeyListener;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.3.1";
+	private static final String PLUGIN_VERSION = "0.3.3";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
+	private static final int COLLECTION_LOG_ENTRY_TITLE_INDEX = 0;
+	private static final int[] SAILING_CARGO_INVENTORIES = {
+		InventoryID.SAILING_BOAT_1_CARGOHOLD,
+		InventoryID.SAILING_BOAT_2_CARGOHOLD,
+		InventoryID.SAILING_BOAT_3_CARGOHOLD,
+		InventoryID.SAILING_BOAT_4_CARGOHOLD,
+		InventoryID.SAILING_BOAT_5_CARGOHOLD
+	};
 
 	@Inject
 	private Client client;
@@ -99,6 +112,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private CachedContainer lastGoodBank;
 	private CachedContainer lastGoodInventory;
 	private CachedContainer lastGoodEquipment;
+	private final CachedContainer[] lastGoodSailingCargo = new CachedContainer[SAILING_CARGO_INVENTORIES.length];
 	private volatile boolean captureInProgress;
 	private boolean bankInterfaceOpen;
 	private long bankContextUntil;
@@ -106,6 +120,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private int ticksSinceAutomaticCapture;
 	private boolean automaticBankCapturePending;
 	private volatile int knownBankCaptureCount = -1;
+	private final CollectionLogAccountSnapshots collectionLogSnapshots = new CollectionLogAccountSnapshots();
 
 	private final HotkeyListener captureHotkeyListener = new HotkeyListener(() -> config.captureHotkey())
 	{
@@ -176,6 +191,86 @@ public class GielinorProfileSyncPlugin extends Plugin
 	}
 
 	@Subscribe
+	public void onScriptPostFired(ScriptPostFired event)
+	{
+		if (event.getScriptId() != ScriptID.COLLECTION_DRAW_LIST)
+		{
+			return;
+		}
+		Player localPlayer = client.getLocalPlayer();
+		if (client.getGameState() != GameState.LOGGED_IN
+			|| localPlayer == null
+			|| client.getVarbitValue(VarbitID.COLLECTION_POH_HOST_BOOK_OPEN) != 0)
+		{
+			return;
+		}
+		String rsn = localPlayer.getName();
+		if (rsn == null || rsn.trim().isEmpty())
+		{
+			return;
+		}
+
+		Widget header = client.getWidget(InterfaceID.Collection.HEADER_TEXT);
+		Widget contents = client.getWidget(InterfaceID.Collection.ITEMS_CONTENTS);
+		if (header == null || header.getChildren() == null || contents == null || contents.getChildren() == null)
+		{
+			return;
+		}
+		Widget titleWidget = header.getChild(COLLECTION_LOG_ENTRY_TITLE_INDEX);
+		if (titleWidget == null || titleWidget.getText() == null)
+		{
+			return;
+		}
+
+		List<CollectionLogSnapshot.ItemObservation> items = new ArrayList<>();
+		for (Widget child : contents.getChildren())
+		{
+			int itemId = child.getItemId();
+			if (itemId <= 0)
+			{
+				continue;
+			}
+			String itemName = itemManager.getItemComposition(itemId).getName();
+			items.add(new CollectionLogSnapshot.ItemObservation(
+				itemId,
+				itemName,
+				child.getOpacity() == 0,
+				child.getItemQuantity()
+			));
+		}
+
+		String category = activeCollectionLogCategory();
+		long observedAt = System.currentTimeMillis();
+		CollectionLogSnapshot collectionLogSnapshot = collectionLogSnapshots.activate(rsn);
+		collectionLogSnapshot.observeUniqueCounts(
+			client.getVarpValue(VarPlayerID.COLLECTION_COUNT),
+			client.getVarpValue(VarPlayerID.COLLECTION_COUNT_MAX),
+			observedAt
+		);
+		if (collectionLogSnapshot.observePage(category, Text.removeTags(titleWidget.getText()), items, observedAt))
+		{
+			ticksSinceExport = Math.max(10, config.exportIntervalTicks());
+		}
+	}
+
+	private String activeCollectionLogCategory()
+	{
+		Widget tabs = client.getWidget(InterfaceID.Collection.TABS);
+		if (tabs == null || tabs.getStaticChildren() == null)
+		{
+			return null;
+		}
+		Widget[] children = tabs.getStaticChildren();
+		int activeIndex = client.getVarbitValue(VarbitID.COLLECTION_LAST_TAB);
+		if (activeIndex < 0 || activeIndex >= children.length || children[activeIndex] == null)
+		{
+			return null;
+		}
+		String rawName = children[activeIndex].getName();
+		return rawName == null ? null : Text.removeTags(rawName);
+	}
+
+	@Subscribe
 	public void onWidgetClosed(WidgetClosed event)
 	{
 		if (isBankInterface(event.getGroupId()))
@@ -202,7 +297,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
 		int containerId = event.getContainerId();
-		if (containerId == InventoryID.BANK || containerId == InventoryID.INV || containerId == InventoryID.WORN)
+		if (containerId == InventoryID.BANK || containerId == InventoryID.INV || containerId == InventoryID.WORN || isSailingCargoContainer(containerId))
 		{
 			ticksSinceExport = Math.max(10, config.exportIntervalTicks());
 		}
@@ -267,7 +362,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "containers", "grandExchange", "appearance", "playerModel", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "collectionLogPageObservations", "containers", "sailingFleet", "grandExchange", "appearance", "playerModel", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -286,6 +381,21 @@ public class GielinorProfileSyncPlugin extends Plugin
 		putContainer(snapshot, "equipment", equipment);
 		putContainer(snapshot, "bank", bank);
 
+		List<Map<String, Object>> sailingCargo = new ArrayList<>(SAILING_CARGO_INVENTORIES.length);
+		for (int boatIndex = 0; boatIndex < SAILING_CARGO_INVENTORIES.length; boatIndex++)
+		{
+			CachedContainer cargo = chooseSailingCargo(
+				boatIndex,
+				buildContainer(SAILING_CARGO_INVENTORIES[boatIndex]),
+				lastGoodSailingCargo[boatIndex],
+				now,
+				rsn
+			);
+			lastGoodSailingCargo[boatIndex] = cargo;
+			sailingCargo.add(nestedContainer(cargo));
+		}
+		snapshot.put("sailing", SailingFleetSnapshot.build(now, client::getVarbitValue, sailingCargo::get));
+
 		long inventoryValue = inventory.loaded ? getLong(inventory.data.get("value")) : 0;
 		long equipmentValue = equipment.loaded ? getLong(equipment.data.get("value")) : 0;
 		long bankValue = bank.loaded ? getLong(bank.data.get("value")) : 0;
@@ -301,6 +411,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("grandExchangeAccountValueEstimate", getLong(grandExchange.get("accountValueEstimate")));
 		snapshot.put("quests", buildQuests());
 		snapshot.put("achievementDiaries", buildAchievementDiaries());
+		snapshot.put("slayer", SlayerTaskSnapshot.build(client, now));
+		snapshot.put("collectionLog", collectionLogSnapshots.current().toMap());
 
 		ExecutorService executor = fileExecutor;
 		if (executor != null)
@@ -323,8 +435,15 @@ public class GielinorProfileSyncPlugin extends Plugin
 	{
 		try
 		{
+			Map<String, Object> accountSnapshot = exportStore.readAccount(rsn);
+			Object mergedCollectionLog = CollectionLogAccountSnapshots.mergeForExport(
+				accountSnapshot.get("collectionLog"),
+				snapshot.get("collectionLog")
+			);
+			snapshot.put("collectionLog", mergedCollectionLog);
 			exportStore.write(rsn, snapshot);
 			previousSnapshot = snapshot;
+			clientThread.invokeLater(() -> collectionLogSnapshots.merge(rsn, mergedCollectionLog));
 			log.debug("Wrote local profile snapshot for {}.", rsn);
 		}
 		catch (IOException e)
@@ -752,6 +871,76 @@ public class GielinorProfileSyncPlugin extends Plugin
 		return new CachedContainer(current, false, false, 0);
 	}
 
+	private CachedContainer chooseSailingCargo(int boatIndex, Map<String, Object> current, CachedContainer memory, long now, String rsn)
+	{
+		if (Boolean.TRUE.equals(current.get("loaded")))
+		{
+			return new CachedContainer(current, true, false, now);
+		}
+		if (memory != null && memory.loaded)
+		{
+			return new CachedContainer(memory.data, true, true, memory.lastSeenTimestamp);
+		}
+
+		Map<String, Object> previous = previousSnapshot;
+		if (rsn.equals(previous.get("rsn")) && previous.get("sailing") instanceof Map)
+		{
+			@SuppressWarnings("unchecked")
+			Map<String, Object> previousSailing = (Map<String, Object>) previous.get("sailing");
+			Object previousBoats = previousSailing.get("boats");
+			if (previousBoats instanceof List)
+			{
+				for (Object rawBoat : (List<?>) previousBoats)
+				{
+					if (!(rawBoat instanceof Map))
+					{
+						continue;
+					}
+					Map<?, ?> boat = (Map<?, ?>) rawBoat;
+					if (getInt(boat.get("slot")) != boatIndex + 1 || !(boat.get("cargo") instanceof Map))
+					{
+						continue;
+					}
+					@SuppressWarnings("unchecked")
+					Map<String, Object> previousCargo = (Map<String, Object>) boat.get("cargo");
+					if (!Boolean.TRUE.equals(previousCargo.get("loaded")))
+					{
+						continue;
+					}
+					long lastSeen = getLong(previousCargo.get("lastSeenTimestamp"));
+					if (lastSeen <= 0)
+					{
+						lastSeen = getLong(previousSailing.get("fleetLastSeenTimestamp"));
+					}
+					return new CachedContainer(previousCargo, true, true, lastSeen);
+				}
+			}
+		}
+
+		return new CachedContainer(current, false, false, 0);
+	}
+
+	private Map<String, Object> nestedContainer(CachedContainer container)
+	{
+		Map<String, Object> result = new LinkedHashMap<>(container.data);
+		result.put("loaded", container.loaded);
+		result.put("fromCache", container.fromCache);
+		result.put("lastSeenTimestamp", container.lastSeenTimestamp);
+		return result;
+	}
+
+	private boolean isSailingCargoContainer(int containerId)
+	{
+		for (int sailingCargoInventory : SAILING_CARGO_INVENTORIES)
+		{
+			if (containerId == sailingCargoInventory)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private void putContainer(Map<String, Object> snapshot, String key, CachedContainer container)
 	{
 		snapshot.put(key, container.data);
@@ -885,62 +1074,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	private Map<String, Object> buildAchievementDiaries()
 	{
-		Map<String, Object> result = new LinkedHashMap<>();
-		Map<String, Object> regions = new LinkedHashMap<>();
-		int completed = 0;
-		completed += addDiaryRegion(regions, "ardougne", "Ardougne", VarbitID.ARDOUGNE_EASY_REWARD, VarbitID.ARDOUGNE_MEDIUM_REWARD, VarbitID.ARDOUGNE_HARD_REWARD, VarbitID.ARDOUGNE_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "desert", "Desert", VarbitID.DESERT_EASY_REWARD, VarbitID.DESERT_MEDIUM_REWARD, VarbitID.DESERT_HARD_REWARD, VarbitID.DESERT_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "falador", "Falador", VarbitID.FALADOR_EASY_REWARD, VarbitID.FALADOR_MEDIUM_REWARD, VarbitID.FALADOR_HARD_REWARD, VarbitID.FALADOR_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "fremennik", "Fremennik", VarbitID.FREMENNIK_EASY_REWARD, VarbitID.FREMENNIK_MEDIUM_REWARD, VarbitID.FREMENNIK_HARD_REWARD, VarbitID.FREMENNIK_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "kandarin", "Kandarin", VarbitID.KANDARIN_EASY_REWARD, VarbitID.KANDARIN_MEDIUM_REWARD, VarbitID.KANDARIN_HARD_REWARD, VarbitID.KANDARIN_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "karamja", "Karamja", VarbitID.ATJUN_EASY_REWARD, VarbitID.ATJUN_MED_REWARD, VarbitID.ATJUN_HARD_REWARD, VarbitID.KARAMJA_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "kourend_kebos", "Kourend & Kebos", VarbitID.KOUREND_EASY_REWARD, VarbitID.KOUREND_MEDIUM_REWARD, VarbitID.KOUREND_HARD_REWARD, VarbitID.KOUREND_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "lumbridge_draynor", "Lumbridge & Draynor", VarbitID.LUMBRIDGE_EASY_REWARD, VarbitID.LUMBRIDGE_MEDIUM_REWARD, VarbitID.LUMBRIDGE_HARD_REWARD, VarbitID.LUMBRIDGE_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "morytania", "Morytania", VarbitID.MORYTANIA_EASY_REWARD, VarbitID.MORYTANIA_MEDIUM_REWARD, VarbitID.MORYTANIA_HARD_REWARD, VarbitID.MORYTANIA_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "varrock", "Varrock", VarbitID.VARROCK_EASY_REWARD, VarbitID.VARROCK_MEDIUM_REWARD, VarbitID.VARROCK_HARD_REWARD, VarbitID.VARROCK_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "western_provinces", "Western Provinces", VarbitID.WESTERN_EASY_REWARD, VarbitID.WESTERN_MEDIUM_REWARD, VarbitID.WESTERN_HARD_REWARD, VarbitID.WESTERN_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "wilderness", "Wilderness", VarbitID.WILDERNESS_EASY_REWARD, VarbitID.WILDERNESS_MEDIUM_REWARD, VarbitID.WILDERNESS_HARD_REWARD, VarbitID.WILDERNESS_ELITE_REWARD);
-
-		int total = regions.size() * 4;
-		result.put("source", "RuneLite achievement diary reward completion varbits");
-		result.put("completedTierCount", completed);
-		result.put("totalTierCount", total);
-		result.put("completionPercent", total > 0 ? completed * 100.0 / total : 0.0);
-		result.put("regions", regions);
-		return result;
-	}
-
-	private int addDiaryRegion(Map<String, Object> regions, String key, String name, int easy, int medium, int hard, int elite)
-	{
-		Map<String, Object> region = new LinkedHashMap<>();
-		region.put("name", name);
-		region.put("easy", buildDiaryTier(easy));
-		region.put("medium", buildDiaryTier(medium));
-		region.put("hard", buildDiaryTier(hard));
-		region.put("elite", buildDiaryTier(elite));
-		int completed = (isDiaryTierComplete(easy) ? 1 : 0)
-			+ (isDiaryTierComplete(medium) ? 1 : 0)
-			+ (isDiaryTierComplete(hard) ? 1 : 0)
-			+ (isDiaryTierComplete(elite) ? 1 : 0);
-		region.put("completedTierCount", completed);
-		region.put("totalTierCount", 4);
-		region.put("allComplete", completed == 4);
-		regions.put(key, region);
-		return completed;
-	}
-
-	private Map<String, Object> buildDiaryTier(int varbitId)
-	{
-		Map<String, Object> tier = new LinkedHashMap<>();
-		int value = client.getVarbitValue(varbitId);
-		tier.put("complete", value > 0);
-		tier.put("value", value);
-		return tier;
-	}
-
-	private boolean isDiaryTierComplete(int varbitId)
-	{
-		return client.getVarbitValue(varbitId) > 0;
+		return AchievementDiarySnapshot.build(client::getVarbitValue);
 	}
 
 	private long getLong(Object value)
@@ -961,20 +1095,24 @@ public class GielinorProfileSyncPlugin extends Plugin
 		lastGoodBank = null;
 		lastGoodInventory = null;
 		lastGoodEquipment = null;
+		Arrays.fill(lastGoodSailingCargo, null);
 		bankInterfaceOpen = false;
 		bankContextUntil = 0;
 		captureInProgress = false;
 		captureActivityTracker.reset();
 		ticksSinceAutomaticCapture = 0;
 		automaticBankCapturePending = false;
+		collectionLogSnapshots.deactivate();
 	}
 
 	private void resetAccount(String rsn)
 	{
 		lastRsn = rsn;
+		collectionLogSnapshots.activate(rsn);
 		lastGoodBank = null;
 		lastGoodInventory = null;
 		lastGoodEquipment = null;
+		Arrays.fill(lastGoodSailingCargo, null);
 		bankInterfaceOpen = false;
 		bankContextUntil = 0;
 		captureActivityTracker.reset();

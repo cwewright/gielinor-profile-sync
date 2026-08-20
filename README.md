@@ -9,8 +9,10 @@ one website or brand.
 
 - Skill levels and XP, including Sailing
 - Quest states
-- Achievement Diary tier completion
+- Achievement Diary task counts, tier completion, and separately claimed rewards
+- Individual Collection Log slot state for pages the player has opened; unvisited pages remain explicitly unknown
 - Bank, inventory, and equipment snapshots with freshness metadata
+- Owned Sailing boat slots, raw component state, hull condition, and freshness-aware cargo holds
 - Grand Exchange offers and RuneLite price estimates
 - A player appearance descriptor and compact local-player model for private avatars
 - Manual and optional hourly character-history scenes with camera, animation,
@@ -37,6 +39,13 @@ sync tool may copy `latest.json` to a private service or repository.
 
 Snapshots refresh on the configured interval and promptly after bank,
 inventory, or equipment changes so short bank visits are not missed.
+
+Collection Log progress is deliberately observation-based. Open the Collection
+Log and visit a page to teach the exporter that page's exact obtained and
+missing slots. The exporter keeps those page observations between sessions,
+but never treats a banked item as proof of a Collection Log unlock and never
+labels an unvisited page as empty. Player-owned-house Collection Log views are
+ignored so another player's state cannot enter the export.
 
 Character-history captures are written as PNG/JSON pairs under:
 
@@ -85,14 +94,14 @@ gradlew.bat clean test previewBootstrapZip
 The artifact is written to:
 
 ```text
-build\distributions\gielinor-profile-sync-preview-bootstrap-0.3.1.zip
+build\distributions\gielinor-profile-sync-preview-bootstrap-0.3.3.zip
 ```
 
 Verify its exact four-file boundary, manifest, hashes, download origins and
 thin-JAR class boundary with Windows PowerShell 5.1:
 
 ```text
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Verify-PreviewBootstrap.ps1 -Path .\build\distributions\gielinor-profile-sync-preview-bootstrap-0.3.1.zip
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Verify-PreviewBootstrap.ps1 -Path .\build\distributions\gielinor-profile-sync-preview-bootstrap-0.3.3.zip
 ```
 
 The preview starts a separate RuneLite profile named

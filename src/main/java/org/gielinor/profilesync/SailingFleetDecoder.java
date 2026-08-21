@@ -168,7 +168,7 @@ final class SailingFleetDecoder
 		try
 		{
 			List<Integer> indexed = database.rowsByValue(table, column, 0, rawValue);
-			if (indexed != null)
+			if (indexed != null && !indexed.isEmpty())
 			{
 				return indexed;
 			}

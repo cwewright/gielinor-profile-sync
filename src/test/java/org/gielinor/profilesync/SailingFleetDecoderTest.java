@@ -60,6 +60,18 @@ public class SailingFleetDecoderTest
 	}
 
 	@Test
+	public void fallsBackToScanningWhenAnUnindexedLookupReturnsNoRows()
+	{
+		FakeDatabase database = new FakeDatabase();
+		database.returnEmptyIndexedLookup = true;
+		database.add(DBTableID.SailingBoatHull.ID, 401,
+			DBTableID.SailingBoatHull.COL_FACILITY_CUSTOMISATION_ORDER, 3,
+			DBTableID.SailingBoatHull.COL_NAME, "Teak hull");
+
+		assertEquals("Teak hull", new SailingFleetDecoder(database).hull(3).get("name"));
+	}
+
+	@Test
 	public void treatsZeroAsNotConfiguredAndUnsafeNamesAsUnresolved()
 	{
 		FakeDatabase database = new FakeDatabase();
@@ -77,6 +89,7 @@ public class SailingFleetDecoderTest
 		private final Map<Integer, List<Integer>> tables = new HashMap<>();
 		private final Map<String, Object> fields = new HashMap<>();
 		private boolean throwIndexedLookup;
+		private boolean returnEmptyIndexedLookup;
 
 		private void add(int table, int row, int valueColumn, int value, int nameColumn, String name)
 		{
@@ -91,6 +104,10 @@ public class SailingFleetDecoderTest
 			if (throwIndexedLookup)
 			{
 				throw new IllegalStateException("not indexed");
+			}
+			if (returnEmptyIndexedLookup)
+			{
+				return Collections.emptyList();
 			}
 			List<Integer> matches = new java.util.ArrayList<>();
 			for (Integer row : tableRows(table))

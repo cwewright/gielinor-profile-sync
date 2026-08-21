@@ -1,6 +1,7 @@
 package org.gielinor.profilesync;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -9,19 +10,13 @@ import java.util.Set;
 import net.runelite.api.Client;
 import net.runelite.api.gameval.DBTableID;
 
-/**
- * Resolves persistent Sailing customisation signals through the game DB that
- * supplied them. Raw values remain in the export; a failed or ambiguous lookup
- * never becomes a guessed component name.
- */
+/** Resolves Sailing signals through the selected vessel's ordered game-DB option lists. */
 final class SailingFleetDecoder
 {
 	interface DatabaseReader
 	{
 		List<Integer> rowsByValue(int table, int column, int tupleIndex, Object value);
-
 		List<Integer> tableRows(int table);
-
 		Object[] field(int row, int column, int tupleIndex);
 	}
 
@@ -36,19 +31,16 @@ final class SailingFleetDecoder
 	{
 		return new SailingFleetDecoder(new DatabaseReader()
 		{
-			@Override
 			public List<Integer> rowsByValue(int table, int column, int tupleIndex, Object value)
 			{
 				return client.getDBRowsByValue(table, column, tupleIndex, value);
 			}
 
-			@Override
 			public List<Integer> tableRows(int table)
 			{
 				return client.getDBTableRows(table);
 			}
 
-			@Override
 			public Object[] field(int row, int column, int tupleIndex)
 			{
 				return client.getDBTableField(row, column, tupleIndex);
@@ -58,116 +50,218 @@ final class SailingFleetDecoder
 
 	Map<String, Object> boatType(int rawValue)
 	{
-		return decode(
-			DBTableID.SailingBoat.ID,
-			DBTableID.SailingBoat.COL_TYPE_ID,
-			DBTableID.SailingBoat.COL_DISPLAYNAME,
-			rawValue
-		);
-	}
-
-	Map<String, Object> keel(int rawValue)
-	{
-		return decode(DBTableID.SailingBoatKeel.ID, DBTableID.SailingBoatKeel.COL_FACILITY_CUSTOMISATION_ORDER,
-			DBTableID.SailingBoatKeel.COL_NAME, rawValue);
-	}
-
-	Map<String, Object> hull(int rawValue)
-	{
-		return decode(DBTableID.SailingBoatHull.ID, DBTableID.SailingBoatHull.COL_FACILITY_CUSTOMISATION_ORDER,
-			DBTableID.SailingBoatHull.COL_NAME, rawValue);
-	}
-
-	Map<String, Object> sail(int rawValue)
-	{
-		return decode(DBTableID.SailingBoatSail.ID, DBTableID.SailingBoatSail.COL_FACILITY_CUSTOMISATION_ORDER,
-			DBTableID.SailingBoatSail.COL_NAME, rawValue);
-	}
-
-	Map<String, Object> steering(int rawValue)
-	{
-		return decode(DBTableID.SailingBoatSteering.ID, DBTableID.SailingBoatSteering.COL_FACILITY_CUSTOMISATION_ORDER,
-			DBTableID.SailingBoatSteering.COL_NAME, rawValue);
-	}
-
-	Map<String, Object> flag(int rawValue)
-	{
-		return decode(DBTableID.SailingBoatFlag.ID, DBTableID.SailingBoatFlag.COL_FACILITY_CUSTOMISATION_ORDER,
-			DBTableID.SailingBoatFlag.COL_NAME, rawValue);
-	}
-
-	Map<String, Object> brazier(int rawValue)
-	{
-		return decode(DBTableID.SailingBoatBrazier.ID, DBTableID.SailingBoatBrazier.COL_FACILITY_CUSTOMISATION_ORDER,
-			DBTableID.SailingBoatBrazier.COL_NAME, rawValue);
-	}
-
-	Map<String, Object> trim(int rawValue)
-	{
-		return decode(DBTableID.SailingBoatTrim.ID, DBTableID.SailingBoatTrim.COL_FACILITY_CUSTOMISATION_ORDER,
-			DBTableID.SailingBoatTrim.COL_NAME, rawValue);
-	}
-
-	Map<String, Object> facility(int rawValue)
-	{
-		return decode(DBTableID.SailingBoatFacility.ID, DBTableID.SailingBoatFacility.COL_FACILITY_CUSTOMISATION_ORDER,
-			DBTableID.SailingBoatFacility.COL_NAME, rawValue);
-	}
-
-	private Map<String, Object> decode(int table, int valueColumn, int nameColumn, int rawValue)
-	{
-		Map<String, Object> result = new LinkedHashMap<>();
-		result.put("source", "runelite-game-db");
+		Map<String, Object> result = baseResult();
 		if (rawValue <= 0)
 		{
 			result.put("status", "not-configured");
 			return result;
 		}
-
 		try
 		{
-			List<Integer> rows = matchingRows(table, valueColumn, rawValue);
-			Set<String> names = new LinkedHashSet<>();
-			for (Integer row : rows)
+			return decodeNamedRows(result, matchingBoatRows(rawValue), DBTableID.SailingBoat.COL_DISPLAYNAME);
+		}
+		catch (RuntimeException e)
+		{
+			result.put("status", "unavailable");
+			return result;
+		}
+	}
+
+	Map<String, Object> keel(int boatType, int rawValue)
+	{
+		return decodeBoatOption(boatType, DBTableID.SailingBoat.COL_KEEL_OPTION, DBTableID.SailingBoatKeel.COL_NAME, rawValue);
+	}
+
+	Map<String, Object> hull(int boatType, int rawValue)
+	{
+		return decodeBoatOption(boatType, DBTableID.SailingBoat.COL_HULL_OPTION, DBTableID.SailingBoatHull.COL_NAME, rawValue);
+	}
+
+	Map<String, Object> sail(int boatType, int rawValue)
+	{
+		return decodeBoatOption(boatType, DBTableID.SailingBoat.COL_SAIL_OPTION, DBTableID.SailingBoatSail.COL_NAME, rawValue);
+	}
+
+	Map<String, Object> steering(int boatType, int rawValue)
+	{
+		return decodeBoatOption(boatType, DBTableID.SailingBoat.COL_STEERING_OPTION, DBTableID.SailingBoatSteering.COL_NAME, rawValue);
+	}
+
+	Map<String, Object> flag(int boatType, int rawValue)
+	{
+		return decodeBoatOption(boatType, DBTableID.SailingBoat.COL_FLAG_OPTION, DBTableID.SailingBoatFlag.COL_NAME, rawValue);
+	}
+
+	Map<String, Object> brazier(int boatType, int rawValue)
+	{
+		return decodeBoatOption(boatType, DBTableID.SailingBoat.COL_BRAZIER_OPTION, DBTableID.SailingBoatBrazier.COL_NAME, rawValue);
+	}
+
+	Map<String, Object> trim(int boatType, int rawValue)
+	{
+		return decodeBoatOption(boatType, DBTableID.SailingBoat.COL_TRIM_OPTION, DBTableID.SailingBoatTrim.COL_NAME, rawValue);
+	}
+
+	Map<String, Object> facility(int boatType, int hotspotIndex, int rawValue)
+	{
+		Map<String, Object> result = baseResult();
+		if (rawValue <= 0)
+		{
+			result.put("status", "not-configured");
+			return result;
+		}
+		try
+		{
+			Integer boatRow = uniqueBoatRow(boatType);
+			if (boatRow == null)
 			{
-				Object[] values = database.field(row, nameColumn, 0);
-				if (values.length > 0 && values[0] instanceof String)
+				result.put("status", "unresolved");
+				return result;
+			}
+			Integer hotspotRow = rowAt(database.field(boatRow, DBTableID.SailingBoat.COL_HOTSPOT, 3), hotspotIndex);
+			if (hotspotRow == null)
+			{
+				result.put("status", "unresolved");
+				return result;
+			}
+			Object[] options = database.field(hotspotRow, DBTableID.SailingBoatHotspot.COL_OPTION, 0);
+			return decodeSelectedRow(result, options, rawValue, DBTableID.SailingBoatFacility.COL_NAME);
+		}
+		catch (RuntimeException e)
+		{
+			result.put("status", "unavailable");
+			return result;
+		}
+	}
+
+	Map<String, Object> facilityAcrossHotspots(int boatType, int rawValue)
+	{
+		Map<String, Object> result = baseResult();
+		if (rawValue <= 0)
+		{
+			result.put("status", "not-configured");
+			return result;
+		}
+		try
+		{
+			Integer boatRow = uniqueBoatRow(boatType);
+			if (boatRow == null)
+			{
+				result.put("status", "unresolved");
+				return result;
+			}
+			List<Integer> selectedRows = new ArrayList<>();
+			for (Object hotspot : database.field(boatRow, DBTableID.SailingBoat.COL_HOTSPOT, 3))
+			{
+				if (hotspot instanceof Number)
 				{
-					String name = safeName((String) values[0]);
+					Object[] options = database.field(((Number) hotspot).intValue(), DBTableID.SailingBoatHotspot.COL_OPTION, 0);
+					Integer selected = rowAt(options, rawValue - 1);
+					if (selected != null)
+					{
+						selectedRows.add(selected);
+					}
+				}
+			}
+			return decodeNamedRows(result, selectedRows, DBTableID.SailingBoatFacility.COL_NAME);
+		}
+		catch (RuntimeException e)
+		{
+			result.put("status", "unavailable");
+			return result;
+		}
+	}
+
+	private Map<String, Object> decodeBoatOption(int boatType, int optionColumn, int nameColumn, int rawValue)
+	{
+		Map<String, Object> result = baseResult();
+		if (rawValue <= 0)
+		{
+			result.put("status", "not-configured");
+			return result;
+		}
+		try
+		{
+			Integer boatRow = uniqueBoatRow(boatType);
+			if (boatRow == null)
+			{
+				result.put("status", "unresolved");
+				return result;
+			}
+			return decodeSelectedRow(result, database.field(boatRow, optionColumn, 0), rawValue, nameColumn);
+		}
+		catch (RuntimeException e)
+		{
+			result.put("status", "unavailable");
+			return result;
+		}
+	}
+
+	private Map<String, Object> decodeSelectedRow(Map<String, Object> result, Object[] options, int rawValue, int nameColumn)
+	{
+		Integer selectedRow = rowAt(options, rawValue - 1);
+		if (selectedRow == null)
+		{
+			result.put("status", "unresolved");
+			return result;
+		}
+		return decodeNamedRows(result, Collections.singletonList(selectedRow), nameColumn);
+	}
+
+	private Map<String, Object> decodeNamedRows(Map<String, Object> result, List<Integer> rows, int nameColumn)
+	{
+		Set<String> names = new LinkedHashSet<>();
+		for (Integer row : rows)
+		{
+			for (Object value : database.field(row, nameColumn, 0))
+			{
+				if (value instanceof String)
+				{
+					String name = safeName((String) value);
 					if (name != null)
 					{
 						names.add(name);
 					}
 				}
 			}
-
-			if (names.size() == 1)
-			{
-				result.put("status", "resolved");
-				result.put("name", names.iterator().next());
-			}
-			else if (names.size() > 1)
-			{
-				result.put("status", "ambiguous");
-				result.put("candidateNames", new ArrayList<>(names).subList(0, Math.min(8, names.size())));
-			}
-			else
-			{
-				result.put("status", "unresolved");
-			}
 		}
-		catch (RuntimeException e)
+
+		if (names.size() == 1)
 		{
-			result.put("status", "unavailable");
+			result.put("status", "resolved");
+			result.put("name", names.iterator().next());
+		}
+		else if (names.size() > 1)
+		{
+			result.put("status", "ambiguous");
+			result.put("candidateNames", new ArrayList<>(names).subList(0, Math.min(8, names.size())));
+		}
+		else
+		{
+			result.put("status", "unresolved");
 		}
 		return result;
 	}
 
-	private List<Integer> matchingRows(int table, int column, int rawValue)
+	private Map<String, Object> baseResult()
+	{
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("source", "runelite-game-db-option-list");
+		return result;
+	}
+
+	private Integer uniqueBoatRow(int boatType)
+	{
+		List<Integer> rows = matchingBoatRows(boatType);
+		return rows.size() == 1 ? rows.get(0) : null;
+	}
+
+	private List<Integer> matchingBoatRows(int boatType)
 	{
 		try
 		{
-			List<Integer> indexed = database.rowsByValue(table, column, 0, rawValue);
+			List<Integer> indexed = database.rowsByValue(DBTableID.SailingBoat.ID,
+				DBTableID.SailingBoat.COL_TYPE_ID, 0, boatType);
 			if (indexed != null && !indexed.isEmpty())
 			{
 				return indexed;
@@ -175,14 +269,14 @@ final class SailingFleetDecoder
 		}
 		catch (RuntimeException ignored)
 		{
-			// Some DB columns are not indexed. A bounded table scan is the safe fallback.
+			// The boat type column is not indexed in every client cache.
 		}
 
 		List<Integer> matches = new ArrayList<>();
-		for (Integer row : database.tableRows(table))
+		for (Integer row : database.tableRows(DBTableID.SailingBoat.ID))
 		{
-			Object[] values = database.field(row, column, 0);
-			if (values.length > 0 && values[0] instanceof Number && ((Number) values[0]).intValue() == rawValue)
+			Object[] values = database.field(row, DBTableID.SailingBoat.COL_TYPE_ID, 0);
+			if (values.length > 0 && values[0] instanceof Number && ((Number) values[0]).intValue() == boatType)
 			{
 				matches.add(row);
 			}
@@ -190,13 +284,15 @@ final class SailingFleetDecoder
 		return matches;
 	}
 
+	private Integer rowAt(Object[] rows, int index)
+	{
+		return rows != null && index >= 0 && index < rows.length && rows[index] instanceof Number
+			? ((Number) rows[index]).intValue() : null;
+	}
+
 	private String safeName(String raw)
 	{
 		String value = raw.replaceAll("<[^>]*>", "").trim();
-		if (value.isEmpty() || value.length() > 80 || !value.matches("[A-Za-z0-9 '&(),+.-]+"))
-		{
-			return null;
-		}
-		return value;
+		return value.isEmpty() || value.length() > 80 || !value.matches("[A-Za-z0-9 '&(),+.-]+") ? null : value;
 	}
 }

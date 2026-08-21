@@ -277,14 +277,14 @@ final class SailingFleetSnapshot
 				if (decoder != null)
 				{
 					Map<String, Object> decoded = new LinkedHashMap<>();
-					decoded.put("keel", decoder.keel(keelId));
-					decoded.put("hull", decoder.hull(hullId));
-					decoded.put("sail", decoder.sail(sailId));
-					decoded.put("steering", decoder.steering(steeringId));
-					decoded.put("teleportFocus", decoder.facility(teleportFocusId));
-					decoded.put("flag", decoder.flag(flagId));
-					decoded.put("brazier", decoder.brazier(brazierId));
-					decoded.put("trim", decoder.trim(trimId));
+					decoded.put("keel", decoder.keel(typeId, keelId));
+					decoded.put("hull", decoder.hull(typeId, hullId));
+					decoded.put("sail", decoder.sail(typeId, sailId));
+					decoded.put("steering", decoder.steering(typeId, steeringId));
+					decoded.put("teleportFocus", decoder.facilityAcrossHotspots(typeId, teleportFocusId));
+					decoded.put("flag", decoder.flag(typeId, flagId));
+					decoded.put("brazier", decoder.brazier(typeId, brazierId));
+					decoded.put("trim", decoder.trim(typeId, trimId));
 					boat.put("decodedComponents", decoded);
 				}
 
@@ -303,7 +303,7 @@ final class SailingFleetSnapshot
 					facility.put("extraData", varbitReader.applyAsInt(FACILITY_EXTRA[boatIndex][facilityIndex]));
 					if (decoder != null)
 					{
-						facility.put("decoded", decoder.facility(componentId));
+						facility.put("decoded", decoder.facility(typeId, facilityIndex, componentId));
 					}
 					facilities.add(facility);
 				}

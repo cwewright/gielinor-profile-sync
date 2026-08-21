@@ -1,5 +1,6 @@
 package org.gielinor.profilesync;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -59,6 +60,30 @@ public class SailingFleetSnapshotTest
 		assertEquals(4, facilities.get(3).get("extraData"));
 		assertTrue((Boolean) map(boats.get(0).get("cargo")).get("loaded"));
 		assertFalse((Boolean) map(boats.get(1).get("cargo")).get("loaded"));
+	}
+
+	@Test
+	public void exportsActiveBoatSignalsWithoutGuessingTheirSlotMeaning()
+	{
+		Map<Integer, Integer> values = new HashMap<>();
+		values.put(VarbitID.SAILING_BOAT_1_OWNED, 1);
+		values.put(VarbitID.SAILING_LAST_PERSONAL_BOAT_BOARDED, 2);
+		values.put(VarbitID.SAILING_PLAYER_IS_ON_PLAYER_BOAT, 1);
+		values.put(VarbitID.SAILING_BOARDED_BOAT, 77);
+		values.put(VarbitID.SAILING_BOARDED_BOAT_TYPE, 2);
+		values.put(VarbitID.SAILING_BOARDED_BOAT_TYPE_STORED, 2);
+
+		Map<String, Object> result = SailingFleetSnapshot.build(
+			2500L,
+			id -> values.getOrDefault(id, 0),
+			boatIndex -> unloadedCargo()
+		);
+
+		Map<String, Object> signals = map(result.get("activeBoatSignals"));
+		assertEquals(2, signals.get("lastPersonalBoatBoarded"));
+		assertEquals(1, signals.get("playerOnPersonalBoat"));
+		assertEquals(77, signals.get("boardedBoat"));
+		assertEquals(Arrays.asList("activeBoat", "crewAssignments"), result.get("unknownFields"));
 	}
 
 	@Test

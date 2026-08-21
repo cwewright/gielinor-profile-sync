@@ -64,7 +64,7 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.3.3";
+	private static final String PLUGIN_VERSION = "0.3.4";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int COLLECTION_LOG_ENTRY_TITLE_INDEX = 0;
@@ -394,7 +394,12 @@ public class GielinorProfileSyncPlugin extends Plugin
 			lastGoodSailingCargo[boatIndex] = cargo;
 			sailingCargo.add(nestedContainer(cargo));
 		}
-		snapshot.put("sailing", SailingFleetSnapshot.build(now, client::getVarbitValue, sailingCargo::get));
+		snapshot.put("sailing", SailingFleetSnapshot.build(
+			now,
+			client::getVarbitValue,
+			sailingCargo::get,
+			SailingFleetDecoder.forClient(client)
+		));
 
 		long inventoryValue = inventory.loaded ? getLong(inventory.data.get("value")) : 0;
 		long equipmentValue = equipment.loaded ? getLong(equipment.data.get("value")) : 0;

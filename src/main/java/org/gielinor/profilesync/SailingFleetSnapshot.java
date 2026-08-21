@@ -206,18 +206,32 @@ final class SailingFleetSnapshot
 
 	static Map<String, Object> build(long timestamp, IntUnaryOperator varbitReader, IntFunction<Map<String, Object>> cargoReader)
 	{
+		return build(timestamp, varbitReader, cargoReader, null);
+	}
+
+	static Map<String, Object> build(
+		long timestamp,
+		IntUnaryOperator varbitReader,
+		IntFunction<Map<String, Object>> cargoReader,
+		SailingFleetDecoder decoder)
+	{
 		Map<String, Object> result = new LinkedHashMap<>();
-		result.put("schemaVersion", 1);
-		result.put("source", "RuneLite persistent Sailing boat gamevals and cargo containers");
+		result.put("schemaVersion", 2);
+		result.put("source", "RuneLite persistent Sailing gamevals, game DB labels, and cargo containers");
 		result.put("sourceVersion", "runelite-1.12.35-gamevals");
 		result.put("fleetFromCache", false);
 		result.put("fleetLastSeenTimestamp", timestamp);
 		result.put("unknownFields", Arrays.asList(
-			"decodedBoatTypeNames",
-			"decodedComponentNames",
 			"activeBoat",
 			"crewAssignments"
 		));
+		Map<String, Object> activeSignals = new LinkedHashMap<>();
+		activeSignals.put("lastPersonalBoatBoarded", safeRead(varbitReader, VarbitID.SAILING_LAST_PERSONAL_BOAT_BOARDED));
+		activeSignals.put("playerOnPersonalBoat", safeRead(varbitReader, VarbitID.SAILING_PLAYER_IS_ON_PLAYER_BOAT));
+		activeSignals.put("boardedBoat", safeRead(varbitReader, VarbitID.SAILING_BOARDED_BOAT));
+		activeSignals.put("boardedBoatType", safeRead(varbitReader, VarbitID.SAILING_BOARDED_BOAT_TYPE));
+		activeSignals.put("storedBoardedBoatType", safeRead(varbitReader, VarbitID.SAILING_BOARDED_BOAT_TYPE_STORED));
+		result.put("activeBoatSignals", activeSignals);
 
 		List<Map<String, Object>> boats = new ArrayList<>();
 		try
@@ -235,18 +249,44 @@ final class SailingFleetSnapshot
 				boat.put("slot", boatIndex + 1);
 				boat.put("owned", true);
 				boat.put("ownershipValue", ownershipValue);
-				boat.put("typeId", varbitReader.applyAsInt(TYPE[boatIndex]));
+				int typeId = varbitReader.applyAsInt(TYPE[boatIndex]);
+				boat.put("typeId", typeId);
+				if (decoder != null)
+				{
+					boat.put("decodedType", decoder.boatType(typeId));
+				}
 
 				Map<String, Object> components = new LinkedHashMap<>();
-				components.put("keelId", varbitReader.applyAsInt(KEEL[boatIndex]));
-				components.put("hullId", varbitReader.applyAsInt(HULL[boatIndex]));
-				components.put("sailId", varbitReader.applyAsInt(SAIL[boatIndex]));
-				components.put("steeringId", varbitReader.applyAsInt(STEERING[boatIndex]));
-				components.put("teleportFocusId", varbitReader.applyAsInt(TELEPORT_FOCUS[boatIndex]));
-				components.put("flagId", varbitReader.applyAsInt(FLAG[boatIndex]));
-				components.put("brazierId", varbitReader.applyAsInt(BRAZIER[boatIndex]));
-				components.put("trimId", varbitReader.applyAsInt(TRIM[boatIndex]));
+				int keelId = varbitReader.applyAsInt(KEEL[boatIndex]);
+				int hullId = varbitReader.applyAsInt(HULL[boatIndex]);
+				int sailId = varbitReader.applyAsInt(SAIL[boatIndex]);
+				int steeringId = varbitReader.applyAsInt(STEERING[boatIndex]);
+				int teleportFocusId = varbitReader.applyAsInt(TELEPORT_FOCUS[boatIndex]);
+				int flagId = varbitReader.applyAsInt(FLAG[boatIndex]);
+				int brazierId = varbitReader.applyAsInt(BRAZIER[boatIndex]);
+				int trimId = varbitReader.applyAsInt(TRIM[boatIndex]);
+				components.put("keelId", keelId);
+				components.put("hullId", hullId);
+				components.put("sailId", sailId);
+				components.put("steeringId", steeringId);
+				components.put("teleportFocusId", teleportFocusId);
+				components.put("flagId", flagId);
+				components.put("brazierId", brazierId);
+				components.put("trimId", trimId);
 				boat.put("components", components);
+				if (decoder != null)
+				{
+					Map<String, Object> decoded = new LinkedHashMap<>();
+					decoded.put("keel", decoder.keel(keelId));
+					decoded.put("hull", decoder.hull(hullId));
+					decoded.put("sail", decoder.sail(sailId));
+					decoded.put("steering", decoder.steering(steeringId));
+					decoded.put("teleportFocus", decoder.facility(teleportFocusId));
+					decoded.put("flag", decoder.flag(flagId));
+					decoded.put("brazier", decoder.brazier(brazierId));
+					decoded.put("trim", decoder.trim(trimId));
+					boat.put("decodedComponents", decoded);
+				}
 
 				Map<String, Object> condition = new LinkedHashMap<>();
 				condition.put("storedHitpoints", varbitReader.applyAsInt(STORED_HP[boatIndex]));
@@ -258,8 +298,13 @@ final class SailingFleetSnapshot
 				{
 					Map<String, Object> facility = new LinkedHashMap<>();
 					facility.put("slot", facilityIndex);
-					facility.put("componentId", varbitReader.applyAsInt(FACILITY[boatIndex][facilityIndex]));
+					int componentId = varbitReader.applyAsInt(FACILITY[boatIndex][facilityIndex]);
+					facility.put("componentId", componentId);
 					facility.put("extraData", varbitReader.applyAsInt(FACILITY_EXTRA[boatIndex][facilityIndex]));
+					if (decoder != null)
+					{
+						facility.put("decoded", decoder.facility(componentId));
+					}
 					facilities.add(facility);
 				}
 				boat.put("facilities", facilities);
@@ -300,5 +345,17 @@ final class SailingFleetSnapshot
 		privacy.put("nearbyPlayersIncluded", false);
 		result.put("privacy", privacy);
 		return result;
+	}
+
+	private static Integer safeRead(IntUnaryOperator reader, int varbit)
+	{
+		try
+		{
+			return reader.applyAsInt(varbit);
+		}
+		catch (RuntimeException e)
+		{
+			return null;
+		}
 	}
 }

@@ -22,23 +22,22 @@ with its original last-seen timestamp.
 
 ## State this slice intentionally leaves unknown
 
-RuneLite 1.12.35 does not publish a decoded vessel/facility model in its public
-API. The generated values identify the state but do not provide a stable public
-mapping from every numeric value to a display name or facility effect. This
-slice therefore exports raw identifiers and lets consumers label them as
-recorded component values, not named game objects.
+RuneLite 1.12.35 publishes Sailing boat, core-component, and facility DB tables
+through its public client API. Schema 2 resolves signals by the table type ID or
+customisation-order column and exports a name only when all matching rows agree.
+Indexed lookup has a bounded table-scan fallback. The original numeric value is
+always retained and failed, ambiguous, or unsafe labels remain explicit.
 
 The following are intentionally not inferred:
 
-- the active vessel (a last-boarded value exists, but this audit did not prove
-  a stable slot mapping suitable for an account contract);
-- boat display names;
-- decoded boat, component, or facility names/effects;
+- the active vessel (direct boarded and last-personal-boat signals are recorded,
+  but one controlled boarded sync must still prove their slot encoding);
+- facility effects beyond the reviewed RuneLite DB name;
 - open or missing slots (a zero hotspot is retained as observed data, not
   treated as a recommendation to build something);
 - crew assignments;
 - a cargo hold that RuneLite has not loaded.
 
 No bank item is treated as proof that a component or facility is installed.
-Future slices can add decoded labels only from a reviewed, versioned game-data
-catalogue, while keeping the account snapshot limited to observed state.
+Future slices may add effects and compatibility rules only from reviewed,
+versioned game data or another authoritative public source.

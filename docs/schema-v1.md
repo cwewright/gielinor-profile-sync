@@ -82,10 +82,11 @@ has a stable exporter slot ID, raw type/component identifiers, stored hull
 hitpoints, thirteen raw hotspot values, and an independently freshness-marked
 `cargo` container.
 
-Raw component values are intentionally not decoded into game knowledge. A
-consumer must not turn a zero or absent value into a named missing facility,
-and must not treat unloaded cargo as empty. See `sailing-fleet-audit.md` for the
-RuneLite 1.12.35 evidence and known gaps.
+Schema 2 fleet exports retain every raw value and add labels resolved at
+capture time from RuneLite's Sailing game DB. Failed, unavailable, or ambiguous
+lookups remain explicit. A consumer must not turn zero into a named missing
+facility and must not treat unloaded cargo as empty. Raw boarded-boat signals
+support controlled active-slot correlation; crew assignment remains unknown.
 
 ## Appearance
 

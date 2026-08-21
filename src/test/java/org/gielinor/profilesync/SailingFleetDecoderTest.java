@@ -44,6 +44,17 @@ public class SailingFleetDecoderTest
 	}
 
 	@Test
+	public void fallsBackToTheTrustedInlineBoatNameWhenDisplayNameIsEmpty()
+	{
+		FakeDatabase database = new FakeDatabase();
+		database.addBoat(100, 2, null);
+		database.set(100, DBTableID.SailingBoat.COL_INLINE_NAME, 0, "<col=ffffff>Skiff</col>");
+
+		assertEquals("resolved", new SailingFleetDecoder(database).boatType(2).get("status"));
+		assertEquals("Skiff", new SailingFleetDecoder(database).boatType(2).get("name"));
+	}
+
+	@Test
 	public void traversesBoatHotspotAndItsOrderedFacilityOptions()
 	{
 		FakeDatabase database = new FakeDatabase();
@@ -98,7 +109,10 @@ public class SailingFleetDecoderTest
 		{
 			addTableRow(DBTableID.SailingBoat.ID, row);
 			set(row, DBTableID.SailingBoat.COL_TYPE_ID, 0, type);
-			set(row, DBTableID.SailingBoat.COL_DISPLAYNAME, 0, name);
+			if (name != null)
+			{
+				set(row, DBTableID.SailingBoat.COL_DISPLAYNAME, 0, name);
+			}
 		}
 
 		private void addTableRow(int table, int row)

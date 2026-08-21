@@ -58,7 +58,21 @@ final class SailingFleetDecoder
 		}
 		try
 		{
-			return decodeNamedRows(result, matchingBoatRows(rawValue), DBTableID.SailingBoat.COL_DISPLAYNAME);
+			List<Integer> rows = matchingBoatRows(rawValue);
+			for (int nameColumn : new int[] {
+				DBTableID.SailingBoat.COL_DISPLAYNAME,
+				DBTableID.SailingBoat.COL_INLINE_NAME,
+				DBTableID.SailingBoat.COL_NAME
+			})
+			{
+				Map<String, Object> decoded = decodeNamedRows(baseResult(), rows, nameColumn);
+				if (!"unresolved".equals(decoded.get("status")))
+				{
+					return decoded;
+				}
+			}
+			result.put("status", "unresolved");
+			return result;
 		}
 		catch (RuntimeException e)
 		{

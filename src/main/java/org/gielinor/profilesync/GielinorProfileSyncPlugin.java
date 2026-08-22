@@ -24,18 +24,29 @@ import net.runelite.api.GameState;
 import net.runelite.api.GrandExchangeOffer;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
+import net.runelite.api.ObjectComposition;
 import net.runelite.api.Player;
 import net.runelite.api.PlayerComposition;
 import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
 import net.runelite.api.ScriptID;
 import net.runelite.api.Skill;
+import net.runelite.api.TileObject;
+import net.runelite.api.events.DecorativeObjectDespawned;
+import net.runelite.api.events.DecorativeObjectSpawned;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.GameObjectDespawned;
+import net.runelite.api.events.GameObjectSpawned;
+import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.GroundObjectDespawned;
+import net.runelite.api.events.GroundObjectSpawned;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
+import net.runelite.api.events.WallObjectDespawned;
+import net.runelite.api.events.WallObjectSpawned;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
@@ -64,7 +75,7 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.3.6";
+	private static final String PLUGIN_VERSION = "0.3.7";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int COLLECTION_LOG_ENTRY_TITLE_INDEX = 0;
@@ -117,6 +128,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private boolean bankInterfaceOpen;
 	private long bankContextUntil;
 	private final CaptureActivityTracker captureActivityTracker = new CaptureActivityTracker();
+	private final PohSnapshotTracker pohSnapshots = new PohSnapshotTracker();
 	private int ticksSinceAutomaticCapture;
 	private boolean automaticBankCapturePending;
 	private volatile int knownBankCaptureCount = -1;
@@ -178,6 +190,73 @@ public class GielinorProfileSyncPlugin extends Plugin
 		}
 		resetSession();
 		log.info("Gielinor Profile Sync stopped.");
+	}
+
+	@Subscribe
+	public void onGameStateChanged(GameStateChanged event)
+	{
+		if (event.getGameState() == GameState.LOADING || event.getGameState() == GameState.LOGIN_SCREEN)
+		{
+			pohSnapshots.clearScene();
+		}
+	}
+
+	@Subscribe
+	public void onGameObjectSpawned(GameObjectSpawned event)
+	{
+		observePohObject(event.getGameObject());
+	}
+
+	@Subscribe
+	public void onGameObjectDespawned(GameObjectDespawned event)
+	{
+		pohSnapshots.forget(event.getGameObject());
+	}
+
+	@Subscribe
+	public void onDecorativeObjectSpawned(DecorativeObjectSpawned event)
+	{
+		observePohObject(event.getDecorativeObject());
+	}
+
+	@Subscribe
+	public void onDecorativeObjectDespawned(DecorativeObjectDespawned event)
+	{
+		pohSnapshots.forget(event.getDecorativeObject());
+	}
+
+	@Subscribe
+	public void onWallObjectSpawned(WallObjectSpawned event)
+	{
+		observePohObject(event.getWallObject());
+	}
+
+	@Subscribe
+	public void onWallObjectDespawned(WallObjectDespawned event)
+	{
+		pohSnapshots.forget(event.getWallObject());
+	}
+
+	@Subscribe
+	public void onGroundObjectSpawned(GroundObjectSpawned event)
+	{
+		observePohObject(event.getGroundObject());
+	}
+
+	@Subscribe
+	public void onGroundObjectDespawned(GroundObjectDespawned event)
+	{
+		pohSnapshots.forget(event.getGroundObject());
+	}
+
+	private void observePohObject(TileObject object)
+	{
+		if (object == null)
+		{
+			return;
+		}
+		ObjectComposition composition = client.getObjectDefinition(object.getId());
+		pohSnapshots.observe(object, composition);
 	}
 
 	@Subscribe
@@ -362,7 +441,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "collectionLogPageObservations", "containers", "sailingFleet", "grandExchange", "appearance", "playerModel", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "collectionLogPageObservations", "containers", "sailingFleet", "playerOwnedHouse", "grandExchange", "appearance", "playerModel", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -416,6 +495,17 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("grandExchangeAccountValueEstimate", getLong(grandExchange.get("accountValueEstimate")));
 		snapshot.put("quests", buildQuests());
 		snapshot.put("achievementDiaries", buildAchievementDiaries());
+		if (rsn.equals(previousSnapshot.get("rsn")))
+		{
+			pohSnapshots.restore(previousSnapshot.get("playerOwnedHouse"));
+		}
+		snapshot.put("playerOwnedHouse", pohSnapshots.snapshot(
+			now,
+			client.getVarbitValue(VarbitID.POH_BUILDING_MODE) > 0,
+			client.getVarbitValue(VarbitID.POH_HOUSE_LOCATION),
+			client.getVarbitValue(VarbitID.POH_HOUSE_STYLE),
+			client.getVarbitValue(VarbitID.POH_HOUSE_SIZE)
+		));
 		snapshot.put("slayer", SlayerTaskSnapshot.build(client, now));
 		snapshot.put("collectionLog", collectionLogSnapshots.current().toMap());
 
@@ -1108,12 +1198,18 @@ public class GielinorProfileSyncPlugin extends Plugin
 		ticksSinceAutomaticCapture = 0;
 		automaticBankCapturePending = false;
 		collectionLogSnapshots.deactivate();
+		pohSnapshots.resetAccount();
 	}
 
 	private void resetAccount(String rsn)
 	{
+		boolean accountChanged = !lastRsn.isEmpty() && !lastRsn.equals(rsn);
 		lastRsn = rsn;
 		collectionLogSnapshots.activate(rsn);
+		if (accountChanged)
+		{
+			pohSnapshots.resetAccount();
+		}
 		lastGoodBank = null;
 		lastGoodInventory = null;
 		lastGoodEquipment = null;

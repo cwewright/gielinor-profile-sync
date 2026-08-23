@@ -28,8 +28,10 @@ import javax.imageio.ImageIO;
 
 final class CaptureBundle
 {
+	static final int MAX_STORED_CAPTURE_BYTES = 4 * 1024 * 1024;
 	private static final double MIN_GOOD_HEIGHT_RATIO = 0.16;
 	private static final double MIN_USABLE_HEIGHT_RATIO = 0.10;
+	private static final int MAX_STORAGE_RESIZE_ATTEMPTS = 10;
 
 	private CaptureBundle()
 	{
@@ -206,8 +208,11 @@ final class CaptureBundle
 	{
 		Files.createDirectories(pendingDirectory);
 
-		BufferedImage bufferedImage = cropToBounds(toBufferedImage(image), captureCrop);
-		byte[] pngBytes = encodePng(bufferedImage);
+		BufferedImage croppedImage = cropToBounds(toBufferedImage(image), captureCrop);
+		EncodedCapture encodedCapture = encodeWithinStorageBudget(croppedImage);
+		BufferedImage bufferedImage = encodedCapture.image;
+		byte[] pngBytes = encodedCapture.pngBytes;
+		updateStoredFrameMetadata(metadata, croppedImage.getWidth(), croppedImage.getHeight(), bufferedImage.getWidth(), bufferedImage.getHeight());
 		String imageFileName = captureId + ".png";
 		String metadataFileName = captureId + ".json";
 
@@ -453,6 +458,94 @@ final class CaptureBundle
 		}
 	}
 
+	private static EncodedCapture encodeWithinStorageBudget(BufferedImage source) throws IOException
+	{
+		BufferedImage current = source;
+		byte[] pngBytes = encodePng(current);
+		for (int attempt = 0; pngBytes.length > MAX_STORED_CAPTURE_BYTES && attempt < MAX_STORAGE_RESIZE_ATTEMPTS; attempt++)
+		{
+			double idealScale = Math.sqrt((double) MAX_STORED_CAPTURE_BYTES / pngBytes.length) * 0.94;
+			double scale = Math.max(0.50, Math.min(0.90, idealScale));
+			int width = Math.max(1, (int) Math.floor(current.getWidth() * scale));
+			int height = Math.max(1, (int) Math.floor(current.getHeight() * scale));
+			if (width == current.getWidth() && current.getWidth() > 1)
+			{
+				width--;
+			}
+			if (height == current.getHeight() && current.getHeight() > 1)
+			{
+				height--;
+			}
+			current = resizeImage(current, width, height);
+			pngBytes = encodePng(current);
+		}
+		if (pngBytes.length > MAX_STORED_CAPTURE_BYTES)
+		{
+			throw new IOException("The character history capture could not be reduced to the private upload limit.");
+		}
+		return new EncodedCapture(current, pngBytes);
+	}
+
+	private static BufferedImage resizeImage(BufferedImage source, int width, int height)
+	{
+		int imageType = source.getColorModel().hasAlpha() ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
+		BufferedImage resized = new BufferedImage(width, height, imageType);
+		Graphics2D graphics = resized.createGraphics();
+		try
+		{
+			graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+			graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+			graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			graphics.drawImage(source, 0, 0, width, height, null);
+		}
+		finally
+		{
+			graphics.dispose();
+		}
+		return resized;
+	}
+
+	private static void updateStoredFrameMetadata(
+		Map<String, Object> metadata,
+		int sourceWidth,
+		int sourceHeight,
+		int storedWidth,
+		int storedHeight
+	)
+	{
+		Map<String, Object> camera = copyStringMap(metadata.get("camera"));
+		camera.put("storedWidth", storedWidth);
+		camera.put("storedHeight", storedHeight);
+		camera.put("storageScaleX", round((double) storedWidth / sourceWidth));
+		camera.put("storageScaleY", round((double) storedHeight / sourceHeight));
+		metadata.put("camera", camera);
+
+		if (sourceWidth == storedWidth && sourceHeight == storedHeight)
+		{
+			return;
+		}
+		Map<String, Object> framing = copyStringMap(metadata.get("framing"));
+		Map<String, Object> pixels = copyStringMap(framing.get("pixels"));
+		if (!pixels.isEmpty())
+		{
+			scalePixelField(pixels, "x", storedWidth, sourceWidth);
+			scalePixelField(pixels, "width", storedWidth, sourceWidth);
+			scalePixelField(pixels, "y", storedHeight, sourceHeight);
+			scalePixelField(pixels, "height", storedHeight, sourceHeight);
+			framing.put("pixels", pixels);
+			metadata.put("framing", framing);
+		}
+	}
+
+	private static void scalePixelField(Map<String, Object> pixels, String field, int storedExtent, int sourceExtent)
+	{
+		Object value = pixels.get(field);
+		if (value instanceof Number)
+		{
+			pixels.put(field, (int) Math.round(((Number) value).doubleValue() * storedExtent / sourceExtent));
+		}
+	}
+
 	private static String sha256Hex(byte[] bytes) throws IOException
 	{
 		try
@@ -575,5 +668,17 @@ final class CaptureBundle
 	private static double round(double value)
 	{
 		return Math.round(value * 10000.0) / 10000.0;
+	}
+
+	private static final class EncodedCapture
+	{
+		private final BufferedImage image;
+		private final byte[] pngBytes;
+
+		private EncodedCapture(BufferedImage image, byte[] pngBytes)
+		{
+			this.image = image;
+			this.pngBytes = pngBytes;
+		}
 	}
 }

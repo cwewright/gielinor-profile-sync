@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import javax.imageio.ImageIO;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -216,6 +217,46 @@ public class CaptureBundleTest
 	}
 
 	@Test
+	@SuppressWarnings("unchecked")
+	public void reducesNoisyCapturesBelowThePrivateUploadBudget() throws Exception
+	{
+		Path pending = temporaryFolder.newFolder("oversized").toPath();
+		BufferedImage image = noisyImage(1800, 1400);
+		Map<String, Object> framingPixels = new LinkedHashMap<>();
+		framingPixels.put("x", 450);
+		framingPixels.put("y", 280);
+		framingPixels.put("width", 360);
+		framingPixels.put("height", 700);
+		Map<String, Object> framing = new LinkedHashMap<>();
+		framing.put("pixels", framingPixels);
+		framing.put("quality", "good");
+		Map<String, Object> metadata = new LinkedHashMap<>();
+		metadata.put("captureId", "oversized-capture");
+		metadata.put("framing", framing);
+
+		CaptureBundle.write(pending, "oversized-capture", image, null, metadata, new Gson());
+
+		Path imageFile = pending.resolve("oversized-capture.png");
+		Map<String, Object> parsed = new Gson().fromJson(Files.readString(pending.resolve("oversized-capture.json")), Map.class);
+		Map<String, Object> imageMetadata = (Map<String, Object>) parsed.get("image");
+		Map<String, Object> camera = (Map<String, Object>) parsed.get("camera");
+		Map<String, Object> storedFraming = (Map<String, Object>) parsed.get("framing");
+		Map<String, Object> storedPixels = (Map<String, Object>) storedFraming.get("pixels");
+		BufferedImage storedImage = ImageIO.read(imageFile.toFile());
+
+		assertTrue(Files.size(imageFile) <= CaptureBundle.MAX_STORED_CAPTURE_BYTES);
+		assertTrue(storedImage.getWidth() < image.getWidth());
+		assertTrue(storedImage.getHeight() < image.getHeight());
+		assertEquals((double) storedImage.getWidth(), imageMetadata.get("width"));
+		assertEquals((double) storedImage.getHeight(), imageMetadata.get("height"));
+		assertEquals((double) Files.size(imageFile), imageMetadata.get("byteLength"));
+		assertEquals((double) storedImage.getWidth(), camera.get("storedWidth"));
+		assertEquals((double) storedImage.getHeight(), camera.get("storedHeight"));
+		assertTrue(((Number) storedPixels.get("width")).intValue() < 360);
+		assertTrue(((Number) storedPixels.get("height")).intValue() < 700);
+	}
+
+	@Test
 	public void prunesOldestCompletedPairsToRetentionLimit() throws Exception
 	{
 		Path pending = temporaryFolder.newFolder("retention").toPath();
@@ -292,6 +333,23 @@ public class CaptureBundleTest
 			for (int x = 0; x < image.getWidth(); x++)
 			{
 				image.setRGB(x, y, new Color(x * 2, y * 2, 80).getRGB());
+			}
+		}
+		return image;
+	}
+
+	private BufferedImage noisyImage(int width, int height)
+	{
+		BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+		int state = 0x5a17b4c3;
+		for (int y = 0; y < height; y++)
+		{
+			for (int x = 0; x < width; x++)
+			{
+				state ^= state << 13;
+				state ^= state >>> 17;
+				state ^= state << 5;
+				image.setRGB(x, y, state & 0x00ffffff);
 			}
 		}
 		return image;

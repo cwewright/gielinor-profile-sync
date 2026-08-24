@@ -32,6 +32,8 @@ import net.runelite.api.QuestState;
 import net.runelite.api.ScriptID;
 import net.runelite.api.Skill;
 import net.runelite.api.TileObject;
+import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.DecorativeObjectDespawned;
 import net.runelite.api.events.DecorativeObjectSpawned;
 import net.runelite.api.events.GameTick;
@@ -75,7 +77,7 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.3.8";
+	private static final String PLUGIN_VERSION = "0.3.9";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int COLLECTION_LOG_ENTRY_TITLE_INDEX = 0;
@@ -129,6 +131,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private long bankContextUntil;
 	private final CaptureActivityTracker captureActivityTracker = new CaptureActivityTracker();
 	private final PohSnapshotTracker pohSnapshots = new PohSnapshotTracker();
+	private final HunterRumourSnapshot hunterRumours = new HunterRumourSnapshot();
 	private int ticksSinceAutomaticCapture;
 	private boolean automaticBankCapturePending;
 	private volatile int knownBankCaptureCount = -1;
@@ -373,6 +376,15 @@ public class GielinorProfileSyncPlugin extends Plugin
 	}
 
 	@Subscribe
+	public void onChatMessage(ChatMessage event)
+	{
+		if (hunterRumours.observe(event.getType(), event.getMessage(), isInHunterBurrows(), System.currentTimeMillis()))
+		{
+			ticksSinceExport = Math.max(10, config.exportIntervalTicks());
+		}
+	}
+
+	@Subscribe
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
 		int containerId = event.getContainerId();
@@ -441,7 +453,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "collectionLogPageObservations", "containers", "sailingFleet", "playerOwnedHouse", "grandExchange", "appearance", "playerModel", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "collectionLogPageObservations", "containers", "sailingFleet", "playerOwnedHouse", "playerOwnedHouseLayout", "grandExchange", "appearance", "playerModel", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -498,15 +510,18 @@ public class GielinorProfileSyncPlugin extends Plugin
 		if (rsn.equals(previousSnapshot.get("rsn")))
 		{
 			pohSnapshots.restore(previousSnapshot.get("playerOwnedHouse"));
+			hunterRumours.restore(previousSnapshot.get("hunterRumours"));
 		}
 		snapshot.put("playerOwnedHouse", pohSnapshots.snapshot(
 			now,
 			client.getVarbitValue(VarbitID.POH_BUILDING_MODE) > 0,
 			client.getVarbitValue(VarbitID.POH_HOUSE_LOCATION),
 			client.getVarbitValue(VarbitID.POH_HOUSE_STYLE),
-			client.getVarbitValue(VarbitID.POH_HOUSE_SIZE)
+			client.getVarbitValue(VarbitID.POH_HOUSE_SIZE),
+			client.isInInstancedRegion() ? client.getInstanceTemplateChunks() : null
 		));
 		snapshot.put("slayer", SlayerTaskSnapshot.build(client, now));
+		snapshot.put("hunterRumours", hunterRumours.snapshot());
 		snapshot.put("collectionLog", collectionLogSnapshots.current().toMap());
 
 		ExecutorService executor = fileExecutor;
@@ -524,6 +539,19 @@ public class GielinorProfileSyncPlugin extends Plugin
 		source.put("transport", "local-file");
 		source.put("networkRequests", false);
 		return source;
+	}
+
+	private boolean isInHunterBurrows()
+	{
+		Player localPlayer = client.getLocalPlayer();
+		if (localPlayer == null)
+		{
+			return false;
+		}
+		WorldPoint location = localPlayer.getWorldLocation();
+		return location.getPlane() == 0
+			&& location.getX() >= 1549 && location.getX() <= 1565
+			&& location.getY() >= 9449 && location.getY() <= 9464;
 	}
 
 	private void writeSnapshot(String rsn, Map<String, Object> snapshot)
@@ -1199,6 +1227,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		automaticBankCapturePending = false;
 		collectionLogSnapshots.deactivate();
 		pohSnapshots.resetAccount();
+		hunterRumours.resetAccount();
 	}
 
 	private void resetAccount(String rsn)
@@ -1209,6 +1238,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		if (accountChanged)
 		{
 			pohSnapshots.resetAccount();
+			hunterRumours.resetAccount();
 		}
 		lastGoodBank = null;
 		lastGoodInventory = null;

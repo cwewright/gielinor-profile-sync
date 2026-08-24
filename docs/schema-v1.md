@@ -48,6 +48,15 @@ minor plugin updates remain forwards-compatible.
   and count but marks `identityKnown: false`; unavailable values remain `null`.
   The `slayerTask` capability never derives an assignment from chat, kills,
   inventory, exact coordinates, or other live telemetry.
+- `hunterRumours`: freshness-aware observations of the current Hunter Guild
+  assignment and any master-specific assignments encountered in Hunter Guild
+  dialogue. RuneLite has no complete server-backed assignment variable, so the
+  exporter also listens for the Quetzal whistle's own current-rumour message.
+  `coverage: "observed-dialogue-and-whistle"` is intentionally partial:
+  masters not observed are unknown, `completionCount` remains `null`, and the
+  rare-piece message can mark the current assignment complete without guessing
+  how many creatures were caught. Retained observations are explicitly marked
+  `fromCache` after a restart.
 - `collectionLog`: exact slot state for Collection Log pages observed through
   RuneLite's rendered interface
 
@@ -105,6 +114,20 @@ shown with their model colour when a consumer does not ship game textures.
 The appearance section is not a screenshot and never contains credentials or
 location data. A website should let the player explicitly choose when a newly
 exported look replaces their saved avatar.
+
+## Player-owned house
+
+`playerOwnedHouse` remains authoritative only after the player enters their own
+house in building mode and the exit portal is observed. Schema 2 retains the
+schema-1 flat `furniture` list and adds `rooms`, grouping furniture into the
+8-by-8 instance chunks exposed by RuneLite. Room coordinates are relative to
+the exit-portal room; furniture coordinates are room-local tiles. No world
+coordinate, player position, nearby player, or visitor-house claim is emitted.
+
+Each room also includes its generic instance-template region/chunk reference
+and rotation. Those references are game-definition evidence for a future room
+catalogue, not the player's location. Until independently catalogued,
+`roomType` is `null` and `identityKnown` is false.
 
 ## Character history captures
 

@@ -94,14 +94,14 @@ gradlew.bat clean test previewBootstrapZip
 The artifact is written to:
 
 ```text
-build\distributions\gielinor-profile-sync-preview-bootstrap-0.3.8.zip
+build\distributions\gielinor-profile-sync-preview-bootstrap-0.3.9.zip
 ```
 
 Verify its exact four-file boundary, manifest, hashes, download origins and
 thin-JAR class boundary with Windows PowerShell 5.1:
 
 ```text
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Verify-PreviewBootstrap.ps1 -Path .\build\distributions\gielinor-profile-sync-preview-bootstrap-0.3.8.zip
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Verify-PreviewBootstrap.ps1 -Path .\build\distributions\gielinor-profile-sync-preview-bootstrap-0.3.9.zip
 ```
 
 The preview starts a separate RuneLite profile named

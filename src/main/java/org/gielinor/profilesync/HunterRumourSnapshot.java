@@ -34,6 +34,9 @@ final class HunterRumourSnapshot
 
 	private final Map<String, Assignment> assignments = new LinkedHashMap<>();
 	private String activeHunterKey;
+	private RumourDefinition activeRumour;
+	private String activeObservationSource;
+	private long activeObservedAt;
 	private boolean currentComplete;
 	private boolean knownNoAssignment;
 	private long lastSeenTimestamp;
@@ -53,9 +56,15 @@ final class HunterRumourSnapshot
 			{
 				HunterDefinition hunter = referencedHunter(message);
 				RumourDefinition rumour = referencedRumour(message);
-				return hunter != null && rumour != null && activate(hunter, rumour, "quetzal-whistle", observedAt);
+				if (rumour == null)
+				{
+					return false;
+				}
+				return hunter == null
+					? activateUnattributed(rumour, "quetzal-whistle", observedAt)
+					: activate(hunter, rumour, "quetzal-whistle", observedAt);
 			}
-			if (message.equals(RARE_PIECE_MESSAGE) && activeHunterKey != null && !currentComplete)
+			if (message.equals(RARE_PIECE_MESSAGE) && activeRumour != null && !currentComplete)
 			{
 				currentComplete = true;
 				markObserved(observedAt);
@@ -84,6 +93,9 @@ final class HunterRumourSnapshot
 				assignments.remove(activeHunterKey);
 			}
 			activeHunterKey = null;
+			activeRumour = null;
+			activeObservationSource = null;
+			activeObservedAt = 0L;
 			currentComplete = false;
 			knownNoAssignment = true;
 			markObserved(observedAt);
@@ -106,6 +118,9 @@ final class HunterRumourSnapshot
 		if (!noviceReassignmentOffer)
 		{
 			activeHunterKey = assignmentHunter.key;
+			activeRumour = rumour;
+			activeObservationSource = "hunter-dialogue";
+			activeObservedAt = observedAt;
 			currentComplete = false;
 			knownNoAssignment = false;
 		}
@@ -143,10 +158,23 @@ final class HunterRumourSnapshot
 		Object rawCurrent = candidate.get("current");
 		if (rawCurrent instanceof Map)
 		{
-			activeHunterKey = string(((Map<?, ?>) rawCurrent).get("hunterKey"));
-			currentComplete = Boolean.TRUE.equals(((Map<?, ?>) rawCurrent).get("complete"));
+			Map<?, ?> current = (Map<?, ?>) rawCurrent;
+			RumourDefinition rumour = rumourByName(string(current.get("rumour")));
+			HunterDefinition hunter = hunterByKey(string(current.get("hunterKey")));
+			if (rumour != null)
+			{
+				activeRumour = rumour;
+				activeHunterKey = hunter == null ? null : hunter.key;
+				activeObservationSource = retainedSource(current.get("observationSource"));
+				activeObservedAt = number(current.get("observedAt"));
+				currentComplete = Boolean.TRUE.equals(current.get("complete"));
+				if (hunter != null && !assignments.containsKey(hunter.key))
+				{
+					assignments.put(hunter.key, new Assignment(hunter, rumour, activeObservationSource, activeObservedAt));
+				}
+			}
 		}
-		knownNoAssignment = "none".equals(candidate.get("status"));
+		knownNoAssignment = activeRumour == null && "none".equals(candidate.get("status"));
 		lastSeenTimestamp = number(candidate.get("lastSeenTimestamp"));
 		if (lastSeenTimestamp <= 0)
 		{
@@ -159,6 +187,9 @@ final class HunterRumourSnapshot
 	{
 		assignments.clear();
 		activeHunterKey = null;
+		activeRumour = null;
+		activeObservationSource = null;
+		activeObservedAt = 0L;
 		currentComplete = false;
 		knownNoAssignment = false;
 		lastSeenTimestamp = 0L;
@@ -170,7 +201,7 @@ final class HunterRumourSnapshot
 		Map<String, Object> output = new LinkedHashMap<>();
 		output.put("schemaVersion", 1);
 		output.put("source", SOURCE);
-		output.put("sourceVersion", "hunter-rumours-observation-v1");
+		output.put("sourceVersion", "hunter-rumours-observation-v2");
 		output.put("coverage", COVERAGE);
 		output.put("loaded", lastSeenTimestamp > 0);
 		output.put("fromCache", restored && lastSeenTimestamp > 0);
@@ -187,8 +218,7 @@ final class HunterRumourSnapshot
 			));
 		}
 		output.put("assignments", observedAssignments);
-		Assignment current = activeHunterKey == null ? null : assignments.get(activeHunterKey);
-		output.put("current", current == null ? null : current.toMap(true, currentComplete));
+		output.put("current", activeRumour == null ? null : currentToMap());
 		output.put("completionCount", null);
 		output.put("unobservedAssignmentsAreUnknown", true);
 		return output;
@@ -201,10 +231,46 @@ final class HunterRumourSnapshot
 			|| !hunter.key.equals(activeHunterKey) || currentComplete;
 		assignments.put(hunter.key, new Assignment(hunter, rumour, source, observedAt));
 		activeHunterKey = hunter.key;
+		activeRumour = rumour;
+		activeObservationSource = source;
+		activeObservedAt = observedAt;
 		currentComplete = false;
 		knownNoAssignment = false;
 		markObserved(observedAt);
 		return changed || observedAt > 0;
+	}
+
+	private boolean activateUnattributed(RumourDefinition rumour, String source, long observedAt)
+	{
+		boolean changed = activeHunterKey != null || activeRumour == null
+			|| !activeRumour.name.equals(rumour.name) || currentComplete;
+		activeHunterKey = null;
+		activeRumour = rumour;
+		activeObservationSource = source;
+		activeObservedAt = observedAt;
+		currentComplete = false;
+		knownNoAssignment = false;
+		markObserved(observedAt);
+		return changed || observedAt > 0;
+	}
+
+	private Map<String, Object> currentToMap()
+	{
+		Map<String, Object> value = new LinkedHashMap<>();
+		HunterDefinition hunter = hunterByKey(activeHunterKey);
+		if (hunter != null)
+		{
+			value.put("hunterKey", hunter.key);
+			value.put("hunterNpcId", hunter.npcId);
+			value.put("hunterName", hunter.name);
+			value.put("hunterTier", hunter.tier);
+		}
+		value.put("rumour", activeRumour.name);
+		value.put("active", true);
+		value.put("complete", currentComplete);
+		value.put("observationSource", retainedSource(activeObservationSource));
+		value.put("observedAt", activeObservedAt);
+		return value;
 	}
 
 	private void markObserved(long observedAt)
@@ -219,7 +285,7 @@ final class HunterRumourSnapshot
 		{
 			return "unavailable";
 		}
-		if (activeHunterKey != null)
+		if (activeRumour != null)
 		{
 			return currentComplete ? "complete" : "active";
 		}
@@ -324,6 +390,12 @@ final class HunterRumourSnapshot
 	private static String string(Object value)
 	{
 		return value instanceof String ? (String) value : "";
+	}
+
+	private static String retainedSource(Object value)
+	{
+		String source = string(value);
+		return source.isEmpty() ? "retained-observation" : source;
 	}
 
 	private static long number(Object value)

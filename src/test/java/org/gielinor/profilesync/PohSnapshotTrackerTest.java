@@ -90,6 +90,33 @@ public class PohSnapshotTrackerTest
 		assertEquals(false, inspection.get("exactCoordinatesIncluded"));
 	}
 
+	@Test
+	@SuppressWarnings("unchecked")
+	public void ignoresUnoccupiedInstanceChunksAndLabelsHighConfidenceRooms()
+	{
+		PohSnapshotTracker tracker = new PohSnapshotTracker();
+		tracker.observeForTest(new Object(), ObjectID.POH_EXIT_PORTAL, "Portal", 40, 40, 0, "Enter");
+		tracker.observeForTest(new Object(), 1006, "Oak larder", 49, 43, 0, "Search", "Remove");
+		tracker.observeForTest(new Object(), 1007, "Teak cape rack", 57, 43, 0, "Search", "Remove");
+		int[][][] chunks = emptyChunks();
+		for (int x = 0; x < 13; x++)
+		{
+			for (int y = 0; y < 8; y++)
+			{
+				chunks[0][x][y] = packedChunk(0, 400 + x, 500 + y, 0);
+			}
+		}
+
+		Map<String, Object> inspection = tracker.snapshot(800L, true, 3, 2, 5, chunks);
+		List<Map<String, Object>> rooms = (List<Map<String, Object>>) inspection.get("rooms");
+
+		assertEquals(3, rooms.size());
+		assertEquals(3, inspection.get("roomCount"));
+		assertEquals("Kitchen", rooms.get(1).get("roomType"));
+		assertEquals(true, rooms.get(1).get("identityKnown"));
+		assertEquals("Costume room", rooms.get(2).get("roomType"));
+	}
+
 	private static int[][][] emptyChunks()
 	{
 		int[][][] chunks = new int[4][13][13];

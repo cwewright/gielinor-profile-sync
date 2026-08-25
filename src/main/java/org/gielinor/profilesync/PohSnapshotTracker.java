@@ -216,34 +216,16 @@ final class PohSnapshotTracker
 		Map<String, Room> rooms = new LinkedHashMap<>();
 		int anchorChunkX = Math.floorDiv(exitPortalSceneX, 8);
 		int anchorChunkY = Math.floorDiv(exitPortalSceneY, 8);
-		if (instanceTemplateChunks != null)
-		{
-			for (int plane = 0; plane < instanceTemplateChunks.length; plane++)
-			{
-				int[][] planeChunks = instanceTemplateChunks[plane];
-				if (planeChunks == null)
-				{
-					continue;
-				}
-				for (int chunkX = 0; chunkX < planeChunks.length; chunkX++)
-				{
-					if (planeChunks[chunkX] == null)
-					{
-						continue;
-					}
-					for (int chunkY = 0; chunkY < planeChunks[chunkX].length; chunkY++)
-					{
-						int template = planeChunks[chunkX][chunkY];
-						if (template == -1)
-						{
-							continue;
-						}
-						Room room = new Room(plane, chunkX, chunkY, chunkX - anchorChunkX, chunkY - anchorChunkY, plane - exitPortalPlane, template);
-						rooms.put(room.sceneKey(), room);
-					}
-				}
-			}
-		}
+		Room portalRoom = new Room(
+			exitPortalPlane,
+			anchorChunkX,
+			anchorChunkY,
+			0,
+			0,
+			0,
+			templateAt(instanceTemplateChunks, exitPortalPlane, anchorChunkX, anchorChunkY)
+		);
+		rooms.put(portalRoom.sceneKey(), portalRoom);
 		for (Furniture value : furniture)
 		{
 			int chunkX = Math.floorDiv(value.sceneX, 8);
@@ -256,7 +238,7 @@ final class PohSnapshotTracker
 				chunkX - anchorChunkX,
 				chunkY - anchorChunkY,
 				value.plane - exitPortalPlane,
-				-1
+				templateAt(instanceTemplateChunks, value.plane, chunkX, chunkY)
 			));
 		}
 		List<Room> output = new ArrayList<>(rooms.values());
@@ -264,7 +246,18 @@ final class PohSnapshotTracker
 			.comparingInt((Room value) -> value.relativePlane)
 			.thenComparingInt(value -> value.relativeY)
 			.thenComparingInt(value -> value.relativeX));
-		return output.size() > 128 ? new ArrayList<>(output.subList(0, 128)) : output;
+		return output.size() > 38 ? new ArrayList<>(output.subList(0, 38)) : output;
+	}
+
+	private static int templateAt(int[][][] chunks, int plane, int chunkX, int chunkY)
+	{
+		if (chunks == null || plane < 0 || plane >= chunks.length || chunks[plane] == null
+			|| chunkX < 0 || chunkX >= chunks[plane].length || chunks[plane][chunkX] == null
+			|| chunkY < 0 || chunkY >= chunks[plane][chunkX].length)
+		{
+			return -1;
+		}
+		return chunks[plane][chunkX][chunkY];
 	}
 
 	private static final class Furniture
@@ -376,12 +369,13 @@ final class PohSnapshotTracker
 		private Map<String, Object> toMap()
 		{
 			Map<String, Object> value = new LinkedHashMap<>();
+			String roomType = classifiedRoomType();
 			value.put("id", id());
 			value.put("x", relativeX);
 			value.put("y", relativeY);
 			value.put("plane", relativePlane);
-			value.put("identityKnown", false);
-			value.put("roomType", null);
+			value.put("identityKnown", roomType != null);
+			value.put("roomType", roomType);
 			if (template >= 0)
 			{
 				int rotation = template >> 1 & 0x3;
@@ -398,6 +392,88 @@ final class PohSnapshotTracker
 			value.put("furniture", furniture);
 			value.put("furnitureCount", furniture.size());
 			return value;
+		}
+
+		private String classifiedRoomType()
+		{
+			if (hasAny("magic wardrobe", "fancy dress box", "cape rack", "toy box", "armour case"))
+			{
+				return "Costume room";
+			}
+			if (hasAny("teleportation focus", "portal frame", "portal nexus") || hasNamedPortal())
+			{
+				return "Portal chamber";
+			}
+			if (hasAny("larder", "pump and drain", "firepit with hook", "kitchen sink"))
+			{
+				return "Kitchen";
+			}
+			if (hasAny("workbench", "repair bench", "clockmaker's bench", "helmet pluming stand", "tool store"))
+			{
+				return "Workshop";
+			}
+			if (hasAny("lectern", "telescope", "globe"))
+			{
+				return "Study";
+			}
+			if (hasAny("rejuvenation pool", "restoration pool", "ornate pool", "spirit tree", "fairy ring", "obelisk"))
+			{
+				return "Superior garden";
+			}
+			if (hasAny("jewellery box", "boss lair display", "ancient altar", "occult altar", "lunar altar"))
+			{
+				return "Achievement gallery";
+			}
+			if (hasAny("boxing mat", "boxing ring", "combat ring", "fencing ring"))
+			{
+				return "Combat room";
+			}
+			if (hasAny("attack stone", "balance beam", "prize chest"))
+			{
+				return "Games room";
+			}
+			if (hasAny("pet house", "pet feeder", "pet list"))
+			{
+				return "Menagerie";
+			}
+			if (hasAny("altar"))
+			{
+				return "Chapel";
+			}
+			if (hasAny("bed"))
+			{
+				return "Bedroom";
+			}
+			return null;
+		}
+
+		private boolean hasNamedPortal()
+		{
+			for (Map<String, Object> item : furniture)
+			{
+				String name = String.valueOf(item.get("name")).toLowerCase(java.util.Locale.ROOT);
+				if (name.endsWith(" portal") && !"portal".equals(name) && !"exit portal".equals(name))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
+		private boolean hasAny(String... fragments)
+		{
+			for (Map<String, Object> item : furniture)
+			{
+				String name = String.valueOf(item.get("name")).toLowerCase(java.util.Locale.ROOT);
+				for (String fragment : fragments)
+				{
+					if (name.contains(fragment))
+					{
+						return true;
+					}
+				}
+			}
+			return false;
 		}
 	}
 }

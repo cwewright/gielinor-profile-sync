@@ -36,6 +36,45 @@ public class HunterRumourSnapshotTest
 
 	@Test
 	@SuppressWarnings("unchecked")
+	public void realWhistleMessageRetainsTheRumourWhenTheHunterIsNotNamed()
+	{
+		HunterRumourSnapshot tracker = new HunterRumourSnapshot();
+		assertTrue(tracker.observe(
+			ChatMessageType.GAMEMESSAGE,
+			"Your current rumour target is a grey chinchompa.",
+			false,
+			150L
+		));
+
+		Map<String, Object> snapshot = tracker.snapshot();
+		Map<String, Object> current = (Map<String, Object>) snapshot.get("current");
+		assertEquals("active", snapshot.get("status"));
+		assertEquals("Grey chinchompa", current.get("rumour"));
+		assertFalse(current.containsKey("hunterKey"));
+		assertEquals(0, ((List<?>) snapshot.get("assignments")).size());
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	public void unattributedWhistleObservationRestoresAndCanComplete()
+	{
+		HunterRumourSnapshot original = new HunterRumourSnapshot();
+		original.observe(ChatMessageType.GAMEMESSAGE,
+			"Your current rumour target is a grey chinchompa.", false, 175L);
+
+		HunterRumourSnapshot restored = new HunterRumourSnapshot();
+		restored.restore(original.snapshot());
+		assertTrue(restored.observe(ChatMessageType.GAMEMESSAGE,
+			"You find a rare piece of the creature! You should take it back to the Hunter Guild.", false, 200L));
+
+		Map<String, Object> snapshot = restored.snapshot();
+		assertEquals("complete", snapshot.get("status"));
+		assertEquals(true, ((Map<String, Object>) snapshot.get("current")).get("complete"));
+		assertFalse(((Map<String, Object>) snapshot.get("current")).containsKey("hunterKey"));
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
 	public void dialogueCanRetainMultipleObservedAssignmentsWithoutInventingTheOthers()
 	{
 		HunterRumourSnapshot tracker = new HunterRumourSnapshot();

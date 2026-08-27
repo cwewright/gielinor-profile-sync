@@ -17,7 +17,7 @@ final class ProfileExportStore
 
 	ProfileExportStore(Gson gson, Path directory)
 	{
-		this.gson = gson.newBuilder().setPrettyPrinting().create();
+		this.gson = gson.newBuilder().serializeNulls().setPrettyPrinting().create();
 		this.directory = directory;
 	}
 

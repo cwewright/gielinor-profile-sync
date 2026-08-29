@@ -32,6 +32,21 @@ public class ProfileExportStoreTest
 	}
 
 	@Test
+	public void writesExplicitNullsForUnavailableSignals() throws Exception
+	{
+		ProfileExportStore store = new ProfileExportStore(new Gson(), temporaryFolder.getRoot().toPath());
+		Map<String, Object> snapshot = new LinkedHashMap<>();
+		snapshot.put("tierComplete", null);
+
+		store.write("player", snapshot);
+
+		String json = new String(
+			Files.readAllBytes(temporaryFolder.getRoot().toPath().resolve("latest.json")),
+			java.nio.charset.StandardCharsets.UTF_8);
+		assertTrue(json.contains("\"tierComplete\": null"));
+	}
+
+	@Test
 	public void fallsBackToPlayerForUnsafeEmptyName()
 	{
 		assertEquals("player", ProfileExportStore.safeFileName("***"));

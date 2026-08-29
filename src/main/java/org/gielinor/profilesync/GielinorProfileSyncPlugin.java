@@ -36,7 +36,6 @@ import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
-import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.kit.KitType;
 import net.runelite.client.RuneLite;
 import net.runelite.client.callback.ClientThread;
@@ -59,7 +58,7 @@ import net.runelite.client.util.HotkeyListener;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.3.1";
+	private static final String PLUGIN_VERSION = "0.3.2";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 
@@ -267,7 +266,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "containers", "grandExchange", "appearance", "playerModel", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "containers", "grandExchange", "appearance", "playerModel", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -885,62 +884,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	private Map<String, Object> buildAchievementDiaries()
 	{
-		Map<String, Object> result = new LinkedHashMap<>();
-		Map<String, Object> regions = new LinkedHashMap<>();
-		int completed = 0;
-		completed += addDiaryRegion(regions, "ardougne", "Ardougne", VarbitID.ARDOUGNE_EASY_REWARD, VarbitID.ARDOUGNE_MEDIUM_REWARD, VarbitID.ARDOUGNE_HARD_REWARD, VarbitID.ARDOUGNE_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "desert", "Desert", VarbitID.DESERT_EASY_REWARD, VarbitID.DESERT_MEDIUM_REWARD, VarbitID.DESERT_HARD_REWARD, VarbitID.DESERT_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "falador", "Falador", VarbitID.FALADOR_EASY_REWARD, VarbitID.FALADOR_MEDIUM_REWARD, VarbitID.FALADOR_HARD_REWARD, VarbitID.FALADOR_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "fremennik", "Fremennik", VarbitID.FREMENNIK_EASY_REWARD, VarbitID.FREMENNIK_MEDIUM_REWARD, VarbitID.FREMENNIK_HARD_REWARD, VarbitID.FREMENNIK_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "kandarin", "Kandarin", VarbitID.KANDARIN_EASY_REWARD, VarbitID.KANDARIN_MEDIUM_REWARD, VarbitID.KANDARIN_HARD_REWARD, VarbitID.KANDARIN_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "karamja", "Karamja", VarbitID.ATJUN_EASY_REWARD, VarbitID.ATJUN_MED_REWARD, VarbitID.ATJUN_HARD_REWARD, VarbitID.KARAMJA_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "kourend_kebos", "Kourend & Kebos", VarbitID.KOUREND_EASY_REWARD, VarbitID.KOUREND_MEDIUM_REWARD, VarbitID.KOUREND_HARD_REWARD, VarbitID.KOUREND_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "lumbridge_draynor", "Lumbridge & Draynor", VarbitID.LUMBRIDGE_EASY_REWARD, VarbitID.LUMBRIDGE_MEDIUM_REWARD, VarbitID.LUMBRIDGE_HARD_REWARD, VarbitID.LUMBRIDGE_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "morytania", "Morytania", VarbitID.MORYTANIA_EASY_REWARD, VarbitID.MORYTANIA_MEDIUM_REWARD, VarbitID.MORYTANIA_HARD_REWARD, VarbitID.MORYTANIA_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "varrock", "Varrock", VarbitID.VARROCK_EASY_REWARD, VarbitID.VARROCK_MEDIUM_REWARD, VarbitID.VARROCK_HARD_REWARD, VarbitID.VARROCK_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "western_provinces", "Western Provinces", VarbitID.WESTERN_EASY_REWARD, VarbitID.WESTERN_MEDIUM_REWARD, VarbitID.WESTERN_HARD_REWARD, VarbitID.WESTERN_ELITE_REWARD);
-		completed += addDiaryRegion(regions, "wilderness", "Wilderness", VarbitID.WILDERNESS_EASY_REWARD, VarbitID.WILDERNESS_MEDIUM_REWARD, VarbitID.WILDERNESS_HARD_REWARD, VarbitID.WILDERNESS_ELITE_REWARD);
-
-		int total = regions.size() * 4;
-		result.put("source", "RuneLite achievement diary reward completion varbits");
-		result.put("completedTierCount", completed);
-		result.put("totalTierCount", total);
-		result.put("completionPercent", total > 0 ? completed * 100.0 / total : 0.0);
-		result.put("regions", regions);
-		return result;
-	}
-
-	private int addDiaryRegion(Map<String, Object> regions, String key, String name, int easy, int medium, int hard, int elite)
-	{
-		Map<String, Object> region = new LinkedHashMap<>();
-		region.put("name", name);
-		region.put("easy", buildDiaryTier(easy));
-		region.put("medium", buildDiaryTier(medium));
-		region.put("hard", buildDiaryTier(hard));
-		region.put("elite", buildDiaryTier(elite));
-		int completed = (isDiaryTierComplete(easy) ? 1 : 0)
-			+ (isDiaryTierComplete(medium) ? 1 : 0)
-			+ (isDiaryTierComplete(hard) ? 1 : 0)
-			+ (isDiaryTierComplete(elite) ? 1 : 0);
-		region.put("completedTierCount", completed);
-		region.put("totalTierCount", 4);
-		region.put("allComplete", completed == 4);
-		regions.put(key, region);
-		return completed;
-	}
-
-	private Map<String, Object> buildDiaryTier(int varbitId)
-	{
-		Map<String, Object> tier = new LinkedHashMap<>();
-		int value = client.getVarbitValue(varbitId);
-		tier.put("complete", value > 0);
-		tier.put("value", value);
-		return tier;
-	}
-
-	private boolean isDiaryTierComplete(int varbitId)
-	{
-		return client.getVarbitValue(varbitId) > 0;
+		return AchievementDiarySnapshot.build(client::getVarbitValue);
 	}
 
 	private long getLong(Object value)

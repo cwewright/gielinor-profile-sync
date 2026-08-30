@@ -303,6 +303,25 @@ public class CaptureBundleTest
 		assertEquals(2, CaptureBundle.countSceneTag(captureRoot, "bank", gson));
 	}
 
+	@Test
+	public void diversePruningPreservesOnlyTheNewestConfirmedPortraitPerVessel() throws Exception
+	{
+		Path captureRoot = temporaryFolder.newFolder("vessel-diversity-root").toPath();
+		Path pending = Files.createDirectories(captureRoot.resolve("pending"));
+		BufferedImage image = testImage();
+		writeVesselCapture(pending, image, "slot-1-old", "boat-slot-1", "confirmed", 1_000L);
+		writeVesselCapture(pending, image, "slot-2", "boat-slot-2", "confirmed", 2_000L);
+		writeVesselCapture(pending, image, "slot-1-new", "boat-slot-1", "confirmed", 3_000L);
+		writeVesselCapture(pending, image, "unconfirmed", "boat-slot-3", "unresolved", 4_000L);
+
+		CaptureBundle.pruneDiverse(pending, 2, new Gson());
+
+		assertFalse(Files.exists(pending.resolve("slot-1-old.json")));
+		assertTrue(Files.exists(pending.resolve("slot-1-new.json")));
+		assertTrue(Files.exists(pending.resolve("slot-2.json")));
+		assertFalse(Files.exists(pending.resolve("unconfirmed.json")));
+	}
+
 	private void writeTaggedCapture(
 		Path pending,
 		BufferedImage image,
@@ -318,6 +337,28 @@ public class CaptureBundleTest
 		{
 			context.put("skillTag", skillTag);
 		}
+		Map<String, Object> metadata = new LinkedHashMap<>();
+		metadata.put("captureId", id);
+		metadata.put("context", context);
+		CaptureBundle.write(pending, id, image, null, metadata, new Gson());
+		Files.setLastModifiedTime(pending.resolve(id + ".json"), FileTime.fromMillis(modifiedAt));
+	}
+
+	private void writeVesselCapture(
+		Path pending,
+		BufferedImage image,
+		String id,
+		String boatId,
+		String correlationStatus,
+		long modifiedAt
+	) throws Exception
+	{
+		Map<String, Object> fleet = new LinkedHashMap<>();
+		fleet.put("boatId", boatId);
+		fleet.put("correlationStatus", correlationStatus);
+		Map<String, Object> context = new LinkedHashMap<>();
+		context.put("sceneTag", "vessel");
+		context.put("fleet", fleet);
 		Map<String, Object> metadata = new LinkedHashMap<>();
 		metadata.put("captureId", id);
 		metadata.put("context", context);

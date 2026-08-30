@@ -77,7 +77,7 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.3.10";
+	private static final String PLUGIN_VERSION = "0.3.11";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int COLLECTION_LOG_ENTRY_TITLE_INDEX = 0;
@@ -146,6 +146,15 @@ public class GielinorProfileSyncPlugin extends Plugin
 		}
 	};
 
+	private final HotkeyListener captureVesselHotkeyListener = new HotkeyListener(() -> config.captureVesselHotkey())
+	{
+		@Override
+		public void hotkeyPressed()
+		{
+			clientThread.invokeLater(() -> requestVesselCapture());
+		}
+	};
+
 	@Provides
 	GielinorProfileSyncConfig provideConfig(ConfigManager configManager)
 	{
@@ -176,6 +185,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 			}
 		});
 		keyManager.registerKeyListener(captureHotkeyListener);
+		keyManager.registerKeyListener(captureVesselHotkeyListener);
 		overlayManager.add(characterCaptureOverlay);
 		log.info("Gielinor Profile Sync started.");
 	}
@@ -184,6 +194,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	protected void shutDown()
 	{
 		keyManager.unregisterKeyListener(captureHotkeyListener);
+		keyManager.unregisterKeyListener(captureVesselHotkeyListener);
 		overlayManager.remove(characterCaptureOverlay);
 		captureInProgress = false;
 		if (fileExecutor != null)
@@ -453,7 +464,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "collectionLogPageObservations", "containers", "sailingFleet", "playerOwnedHouse", "playerOwnedHouseLayout", "grandExchange", "appearance", "playerModel", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "collectionLogPageObservations", "containers", "sailingFleet", "sailingBoatNames", "vesselPortraitCaptures", "playerOwnedHouse", "playerOwnedHouseLayout", "grandExchange", "appearance", "playerModel", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -676,6 +687,11 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	private void requestCharacterCapture(String trigger)
 	{
+		requestCharacterCapture(trigger, null);
+	}
+
+	private void requestCharacterCapture(String trigger, Map<String, Object> vesselContext)
+	{
 		Player localPlayer = client.getLocalPlayer();
 		if (client.getGameState() != GameState.LOGGED_IN || localPlayer == null || captureInProgress)
 		{
@@ -716,7 +732,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		Rectangle logicalCaptureCrop = getCaptureCrop(logicalCanvasWidth, logicalCanvasHeight);
 		Shape playerHull = localPlayer.getConvexHull();
 		Rectangle logicalPlayerBounds = playerHull == null ? null : playerHull.getBounds();
-		Map<String, Object> metadata = buildCaptureMetadata(captureId, trigger, localPlayer);
+		Map<String, Object> metadata = buildCaptureMetadata(captureId, trigger, localPlayer, vesselContext);
 		int retention = Math.max(30, Math.min(500, config.captureRetention()));
 		captureInProgress = true;
 
@@ -780,10 +796,58 @@ public class GielinorProfileSyncPlugin extends Plugin
 		});
 	}
 
+	@SuppressWarnings("unchecked")
+	private void requestVesselCapture()
+	{
+		Map<String, Object> fleet = SailingFleetSnapshot.build(
+			System.currentTimeMillis(),
+			client::getVarbitValue,
+			ignored -> null,
+			SailingFleetDecoder.forClient(client)
+		);
+		Object rawActive = fleet.get("activeBoat");
+		if (!(rawActive instanceof Map) || !"confirmed".equals(((Map<String, Object>) rawActive).get("status")))
+		{
+			client.addChatMessage(
+				ChatMessageType.GAMEMESSAGE,
+				"",
+				"Board your own vessel before capturing it; no fleet slot could be safely confirmed.",
+				null
+			);
+			return;
+		}
+
+		Map<String, Object> active = (Map<String, Object>) rawActive;
+		Map<String, Object> vessel = new LinkedHashMap<>();
+		vessel.put("correlationStatus", "confirmed");
+		vessel.put("boatId", active.get("id"));
+		vessel.put("boatSlot", active.get("slot"));
+		vessel.put("typeId", active.get("typeId"));
+		copyDecodedLabel(active.get("decodedType"), vessel, "typeName");
+		copyDecodedLabel(active.get("decodedName"), vessel, "boatName");
+		vessel.put("correlation", active.get("correlation"));
+		requestCharacterCapture("manual", vessel);
+	}
+
+	@SuppressWarnings("unchecked")
+	private void copyDecodedLabel(Object rawDecoded, Map<String, Object> target, String key)
+	{
+		if (!(rawDecoded instanceof Map))
+		{
+			return;
+		}
+		Map<String, Object> decoded = (Map<String, Object>) rawDecoded;
+		if ("resolved".equals(decoded.get("status")) && decoded.get("name") instanceof String)
+		{
+			target.put(key, decoded.get("name"));
+		}
+	}
+
 	private Map<String, Object> buildCaptureMetadata(
 		String captureId,
 		String trigger,
-		Player localPlayer
+		Player localPlayer,
+		Map<String, Object> vesselContext
 	)
 	{
 		Map<String, Object> metadata = new LinkedHashMap<>();
@@ -798,7 +862,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 		source.put("captureMode", "local-only");
 		metadata.put("source", source);
 
-		boolean bankContext = System.currentTimeMillis() <= bankContextUntil;
+		boolean vesselCapture = vesselContext != null;
+		boolean bankContext = !vesselCapture && System.currentTimeMillis() <= bankContextUntil;
 		int skillWindowMinutes = Math.max(1, Math.min(30, config.skillContextMinutes()));
 		String skillTag = captureActivityTracker.recentSkillTag(
 			System.currentTimeMillis(),
@@ -806,10 +871,15 @@ public class GielinorProfileSyncPlugin extends Plugin
 		);
 		Map<String, Object> context = new LinkedHashMap<>();
 		context.put("trigger", trigger);
-		context.put("sceneTag", bankContext ? "bank" : "adventure");
+		context.put("sceneTag", vesselCapture ? "vessel" : bankContext ? "bank" : "adventure");
 		context.put("bankContext", bankContext);
-		context.put("classification", bankContext ? "recent-bank-interface" : skillTag == null ? "unclassified" : "recent-skill-activity");
-		if (skillTag != null)
+		context.put("classification", vesselCapture ? "confirmed-active-owned-vessel" : bankContext ? "recent-bank-interface" : skillTag == null ? "unclassified" : "recent-skill-activity");
+		if (vesselCapture)
+		{
+			context.put("skillTag", "Sailing");
+			context.put("fleet", vesselContext);
+		}
+		else if (skillTag != null)
 		{
 			context.put("skillTag", skillTag);
 		}

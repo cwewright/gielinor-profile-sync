@@ -97,6 +97,13 @@ lookups remain explicit. A consumer must not turn zero into a named missing
 facility and must not treat unloaded cargo as empty. Raw boarded-boat signals
 support controlled active-slot correlation; crew assignment remains unknown.
 
+Schema 3 additionally reads each persistent boat's three name-option values and
+resolves them only through RuneLite's ordered Sailing name table. `activeBoat`
+is `confirmed` only while the player is aboard their own boat and the persistent
+slot, live or stored type, and all three boarded-name signals agree. Otherwise it
+is explicitly `unresolved`. This is the sole correlation used by vessel portrait
+captures; a generic Sailing scene is never assigned to a boat slot.
+
 ## Appearance
 
 `appearance` contains the raw RuneLite player-composition descriptor needed by

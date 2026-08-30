@@ -17,9 +17,13 @@ sync process associates a pending bundle with its authenticated profile.
 ## Scene context
 
 - `context.trigger`: `manual` or explicitly enabled `scheduled`
-- `context.sceneTag`: broad `bank` or `adventure` scene tag
+- `context.sceneTag`: broad `bank`, `adventure`, or exact-slot `vessel` scene tag
 - `context.skillTag`: optional skill name derived from a recent XP increase
 - `context.locationTag`: optional `region-<id>` tag for a coarse 64-by-64 map region
+- `context.fleet`: present only for a manual `vessel` capture. It contains the
+  confirmed `boat-slot-1` through `boat-slot-5` identity and optional sanitized
+  game-DB name/class labels. The capture is refused unless the persistent slot,
+  aboard flag, boat type, and all three name signals agree.
 - `camera`: yaw, pitch, scale and capture-frame dimensions. Pixel fields use the
   delivered screenshot coordinate space; `logical*` fields retain RuneLite's
   canvas coordinates, and `pixelScaleX`/`pixelScaleY` record independent display
@@ -44,4 +48,4 @@ blocked while bank contents or a right-click menu are open. The plugin never
 uploads captures; the player should still review an image before choosing to
 share it because the game scene itself can contain other visible characters. The
 local pending queue protects two bank scenes and the newest scene for each skill
-tag before filling remaining capacity newest-first.
+tag and confirmed vessel slot before filling remaining capacity newest-first.

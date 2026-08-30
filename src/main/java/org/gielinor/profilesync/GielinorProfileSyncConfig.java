@@ -42,11 +42,23 @@ public interface GielinorProfileSyncConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "captureVesselHotkey",
+		name = "Capture current vessel",
+		description = "While aboard your own boat, save a privacy-cropped portrait correlated to that exact fleet slot.",
+		section = characterCaptures,
+		position = 1
+	)
+	default Keybind captureVesselHotkey()
+	{
+		return Keybind.NOT_SET;
+	}
+
+	@ConfigItem(
 		keyName = "showFramingGuide",
 		name = "Show framing guide",
 		description = "Show the exact UI-free area that will be saved and highlight your character.",
 		section = characterCaptures,
-		position = 1
+		position = 2
 	)
 	default boolean showFramingGuide()
 	{
@@ -59,7 +71,7 @@ public interface GielinorProfileSyncConfig extends Config
 		name = "Bank context window",
 		description = "Seconds after closing a bank that a capture may be tagged as a bank scene.",
 		section = characterCaptures,
-		position = 2
+		position = 3
 	)
 	default int recentBankSeconds()
 	{
@@ -71,7 +83,7 @@ public interface GielinorProfileSyncConfig extends Config
 		name = "Automatic history captures",
 		description = "After explicit opt-in, save a scene about once per active hour when recent skill activity can label it.",
 		section = characterCaptures,
-		position = 3
+		position = 4
 	)
 	default boolean automaticCaptures()
 	{
@@ -84,7 +96,7 @@ public interface GielinorProfileSyncConfig extends Config
 		name = "Automatic capture interval",
 		description = "Minutes of logged-in play between automatic skill-history scenes.",
 		section = characterCaptures,
-		position = 4
+		position = 5
 	)
 	default int automaticCaptureMinutes()
 	{
@@ -97,7 +109,7 @@ public interface GielinorProfileSyncConfig extends Config
 		name = "Skill context window",
 		description = "How recently XP must have changed for an automatic scene to receive that skill tag.",
 		section = characterCaptures,
-		position = 5
+		position = 6
 	)
 	default int skillContextMinutes()
 	{
@@ -108,9 +120,9 @@ public interface GielinorProfileSyncConfig extends Config
 	@ConfigItem(
 		keyName = "captureRetention",
 		name = "Local capture limit",
-		description = "Maximum pending bundles; pruning preserves two bank scenes and the newest scene for every tagged skill.",
+		description = "Maximum pending bundles; pruning preserves two bank scenes plus the newest scene for every tagged skill and owned vessel.",
 		section = characterCaptures,
-		position = 6
+		position = 7
 	)
 	default int captureRetention()
 	{

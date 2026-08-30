@@ -55,6 +55,51 @@ public class SailingFleetDecoderTest
 	}
 
 	@Test
+	public void resolvesTheThreePartCustomBoatNameFromOrderedGameOptions()
+	{
+		FakeDatabase database = new FakeDatabase();
+		database.set(
+			DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS,
+			DBTableID.SailingBoatNameOptions.COL_OPTION,
+			0,
+			"The", "Captain's"
+		);
+		database.set(
+			DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS,
+			DBTableID.SailingBoatNameOptions.COL_OPTION,
+			0,
+			"Salty", "Wayward"
+		);
+		database.set(
+			DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS,
+			DBTableID.SailingBoatNameOptions.COL_OPTION,
+			0,
+			"Herring", "Voyager", "Lantern"
+		);
+
+		Map<String, Object> decoded = new SailingFleetDecoder(database).boatName(0, 1, 2);
+		assertEquals("resolved", decoded.get("status"));
+		assertEquals("The Wayward Lantern", decoded.get("name"));
+		assertEquals(java.util.Arrays.asList(0, 1, 2), decoded.get("rawParts"));
+	}
+
+	@Test
+	public void leavesOutOfRangeOrUnsafeBoatNamesUnresolved()
+	{
+		FakeDatabase database = new FakeDatabase();
+		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS,
+			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "C:\\Users\\captain");
+		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS,
+			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "Salty");
+		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS,
+			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "Voyager");
+
+		SailingFleetDecoder decoder = new SailingFleetDecoder(database);
+		assertEquals("unresolved", decoder.boatName(0, 0, 0).get("status"));
+		assertEquals("unresolved", decoder.boatName(7, 0, 0).get("status"));
+	}
+
+	@Test
 	public void traversesBoatHotspotAndItsOrderedFacilityOptions()
 	{
 		FakeDatabase database = new FakeDatabase();

@@ -284,6 +284,7 @@ final class CaptureBundle
 
 		Set<Path> protectedManifests = new LinkedHashSet<>();
 		Set<String> protectedSkills = new LinkedHashSet<>();
+		Set<String> protectedVessels = new LinkedHashSet<>();
 		int protectedBankScenes = 0;
 		for (Path manifest : manifests)
 		{
@@ -306,6 +307,19 @@ final class CaptureBundle
 				if (skillTag != null && protectedSkills.add(skillTag))
 				{
 					protectedManifests.add(manifest);
+				}
+				Object rawFleet = context.get("fleet");
+				if ("vessel".equals(sceneTag) && rawFleet instanceof Map)
+				{
+					Map<String, Object> fleet = (Map<String, Object>) rawFleet;
+					Object rawBoatId = fleet.get("boatId");
+					String boatId = rawBoatId instanceof String ? (String) rawBoatId : null;
+					if ("confirmed".equals(fleet.get("correlationStatus"))
+						&& boatId != null && boatId.matches("boat-slot-[1-5]")
+						&& protectedVessels.add(boatId))
+					{
+						protectedManifests.add(manifest);
+					}
 				}
 			}
 			catch (IOException | RuntimeException ignored)

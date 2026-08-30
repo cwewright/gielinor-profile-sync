@@ -28,7 +28,7 @@ dependencies {
 }
 
 group = 'org.gielinor.profilesync'
-version = '0.3.10'
+version = '0.3.11'
 
 tasks.withType(JavaCompile).configureEach {
 	options.encoding = 'UTF-8'

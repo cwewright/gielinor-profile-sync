@@ -33,6 +33,13 @@ final class SailingFleetSnapshot
 		VarbitID.SAILING_BOAT_4_TYPE,
 		VarbitID.SAILING_BOAT_5_TYPE
 	};
+	private static final int[][] NAME = {
+		{VarbitID.SAILING_BOAT_1_NAME_1, VarbitID.SAILING_BOAT_1_NAME_2, VarbitID.SAILING_BOAT_1_NAME_3},
+		{VarbitID.SAILING_BOAT_2_NAME_1, VarbitID.SAILING_BOAT_2_NAME_2, VarbitID.SAILING_BOAT_2_NAME_3},
+		{VarbitID.SAILING_BOAT_3_NAME_1, VarbitID.SAILING_BOAT_3_NAME_2, VarbitID.SAILING_BOAT_3_NAME_3},
+		{VarbitID.SAILING_BOAT_4_NAME_1, VarbitID.SAILING_BOAT_4_NAME_2, VarbitID.SAILING_BOAT_4_NAME_3},
+		{VarbitID.SAILING_BOAT_5_NAME_1, VarbitID.SAILING_BOAT_5_NAME_2, VarbitID.SAILING_BOAT_5_NAME_3}
+	};
 	private static final int[] KEEL = {
 		VarbitID.SAILING_BOAT_1_KEEL,
 		VarbitID.SAILING_BOAT_2_KEEL,
@@ -216,21 +223,29 @@ final class SailingFleetSnapshot
 		SailingFleetDecoder decoder)
 	{
 		Map<String, Object> result = new LinkedHashMap<>();
-		result.put("schemaVersion", 2);
+		result.put("schemaVersion", 3);
 		result.put("source", "RuneLite persistent Sailing gamevals, game DB labels, and cargo containers");
 		result.put("sourceVersion", "runelite-1.12.35-gamevals");
 		result.put("fleetFromCache", false);
 		result.put("fleetLastSeenTimestamp", timestamp);
-		result.put("unknownFields", Arrays.asList(
-			"activeBoat",
-			"crewAssignments"
-		));
+		result.put("unknownFields", Arrays.asList("crewAssignments"));
+		Integer activeSlotSignal = safeRead(varbitReader, VarbitID.SAILING_LAST_PERSONAL_BOAT_BOARDED);
+		Integer playerOnPersonalBoat = safeRead(varbitReader, VarbitID.SAILING_PLAYER_IS_ON_PLAYER_BOAT);
+		Integer boardedBoat = safeRead(varbitReader, VarbitID.SAILING_BOARDED_BOAT);
+		Integer boardedBoatType = safeRead(varbitReader, VarbitID.SAILING_BOARDED_BOAT_TYPE);
+		Integer storedBoardedBoatType = safeRead(varbitReader, VarbitID.SAILING_BOARDED_BOAT_TYPE_STORED);
+		List<Integer> boardedNameParts = Arrays.asList(
+			safeRead(varbitReader, VarbitID.SAILING_BOARDED_BOAT_NAME_1),
+			safeRead(varbitReader, VarbitID.SAILING_BOARDED_BOAT_NAME_2),
+			safeRead(varbitReader, VarbitID.SAILING_BOARDED_BOAT_NAME_3)
+		);
 		Map<String, Object> activeSignals = new LinkedHashMap<>();
-		activeSignals.put("lastPersonalBoatBoarded", safeRead(varbitReader, VarbitID.SAILING_LAST_PERSONAL_BOAT_BOARDED));
-		activeSignals.put("playerOnPersonalBoat", safeRead(varbitReader, VarbitID.SAILING_PLAYER_IS_ON_PLAYER_BOAT));
-		activeSignals.put("boardedBoat", safeRead(varbitReader, VarbitID.SAILING_BOARDED_BOAT));
-		activeSignals.put("boardedBoatType", safeRead(varbitReader, VarbitID.SAILING_BOARDED_BOAT_TYPE));
-		activeSignals.put("storedBoardedBoatType", safeRead(varbitReader, VarbitID.SAILING_BOARDED_BOAT_TYPE_STORED));
+		activeSignals.put("lastPersonalBoatBoarded", activeSlotSignal);
+		activeSignals.put("playerOnPersonalBoat", playerOnPersonalBoat);
+		activeSignals.put("boardedBoat", boardedBoat);
+		activeSignals.put("boardedBoatType", boardedBoatType);
+		activeSignals.put("storedBoardedBoatType", storedBoardedBoatType);
+		activeSignals.put("boardedNameParts", boardedNameParts);
 		result.put("activeBoatSignals", activeSignals);
 
 		List<Map<String, Object>> boats = new ArrayList<>();
@@ -251,9 +266,23 @@ final class SailingFleetSnapshot
 				boat.put("ownershipValue", ownershipValue);
 				int typeId = varbitReader.applyAsInt(TYPE[boatIndex]);
 				boat.put("typeId", typeId);
+				List<Integer> nameParts = Arrays.asList(
+					varbitReader.applyAsInt(NAME[boatIndex][0]),
+					varbitReader.applyAsInt(NAME[boatIndex][1]),
+					varbitReader.applyAsInt(NAME[boatIndex][2])
+				);
+				boat.put("nameParts", nameParts);
 				if (decoder != null)
 				{
 					boat.put("decodedType", decoder.boatType(typeId));
+					boat.put("decodedName", decoder.boatName(nameParts.get(0), nameParts.get(1), nameParts.get(2)));
+				}
+				else
+				{
+					Map<String, Object> unresolvedName = new LinkedHashMap<>();
+					unresolvedName.put("status", "unresolved");
+					unresolvedName.put("rawParts", nameParts);
+					boat.put("decodedName", unresolvedName);
 				}
 
 				Map<String, Object> components = new LinkedHashMap<>();
@@ -339,11 +368,88 @@ final class SailingFleetSnapshot
 		}
 
 		result.put("boats", boats);
+		result.put("activeBoat", correlateActiveBoat(
+			boats,
+			activeSlotSignal,
+			playerOnPersonalBoat,
+			boardedBoatType,
+			storedBoardedBoatType,
+			boardedNameParts
+		));
 		Map<String, Object> privacy = new LinkedHashMap<>();
 		privacy.put("exactCoordinatesIncluded", false);
 		privacy.put("worldNumberIncluded", false);
 		privacy.put("nearbyPlayersIncluded", false);
 		result.put("privacy", privacy);
+		return result;
+	}
+
+	@SuppressWarnings("unchecked")
+	private static Map<String, Object> correlateActiveBoat(
+		List<Map<String, Object>> boats,
+		Integer slotSignal,
+		Integer playerOnPersonalBoat,
+		Integer boardedType,
+		Integer storedBoardedType,
+		List<Integer> boardedNameParts)
+	{
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("status", "unresolved");
+		if (playerOnPersonalBoat == null || playerOnPersonalBoat != 1)
+		{
+			result.put("reason", "not-aboard-personal-boat");
+			return result;
+		}
+		if (slotSignal == null || slotSignal < 1 || slotSignal > BOAT_COUNT)
+		{
+			result.put("reason", "owned-slot-signal-unavailable");
+			return result;
+		}
+
+		Map<String, Object> selected = null;
+		for (Map<String, Object> boat : boats)
+		{
+			if (Integer.valueOf(slotSignal).equals(boat.get("slot")))
+			{
+				selected = boat;
+				break;
+			}
+		}
+		if (selected == null)
+		{
+			result.put("reason", "owned-slot-not-exported");
+			return result;
+		}
+
+		int selectedType = selected.get("typeId") instanceof Number
+			? ((Number) selected.get("typeId")).intValue() : 0;
+		boolean liveTypeMatches = boardedType != null && boardedType > 0 && boardedType == selectedType;
+		boolean storedTypeMatches = storedBoardedType != null && storedBoardedType > 0 && storedBoardedType == selectedType;
+		if (!liveTypeMatches && !storedTypeMatches)
+		{
+			result.put("reason", "boat-type-signals-do-not-match-slot");
+			return result;
+		}
+
+		Object rawNameParts = selected.get("nameParts");
+		if (!(rawNameParts instanceof List) || boardedNameParts.contains(null)
+			|| !rawNameParts.equals(boardedNameParts))
+		{
+			result.put("reason", "boat-name-signals-do-not-match-slot");
+			return result;
+		}
+
+		result.put("status", "confirmed");
+		result.put("id", selected.get("id"));
+		result.put("slot", selected.get("slot"));
+		result.put("typeId", selected.get("typeId"));
+		result.put("decodedType", selected.get("decodedType"));
+		result.put("decodedName", selected.get("decodedName"));
+		result.put("correlation", Arrays.asList(
+			"owned-slot-signal",
+			liveTypeMatches ? "live-boat-type" : "stored-boat-type",
+			"three-part-boat-name"
+		));
 		return result;
 	}
 

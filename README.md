@@ -12,10 +12,10 @@ one website or brand.
 - Achievement Diary task counts, tier completion, and separately claimed rewards
 - Individual Collection Log slot state for pages the player has opened; unvisited pages remain explicitly unknown
 - Bank, inventory, and equipment snapshots with freshness metadata
-- Owned Sailing boat slots, raw component state, hull condition, and freshness-aware cargo holds
+- Owned Sailing boat slots, safely decoded three-part names, raw component state, hull condition, and freshness-aware cargo holds
 - Grand Exchange offers and RuneLite price estimates
 - A player appearance descriptor and compact local-player model for private avatars
-- Manual and optional hourly character-history scenes with camera, animation,
+- Manual character and exact-vessel portraits plus optional hourly history scenes with camera, animation,
   framing, recent-skill and coarse-region context
 
 The recurring account profile deliberately does **not** export world number,
@@ -61,7 +61,9 @@ Automatic history capture is **off by default**. After explicit opt-in it waits
 about 60 minutes of logged-in play and only saves when a recent real XP change can
 label the skill. It also collects up to two bank-context scenes after the bank has
 closed. The pending queue defaults to 100 bundles, and diversity-aware pruning
-preserves the two newest bank scenes plus the newest scene for every tagged skill.
+preserves the two newest bank scenes plus the newest scene for every tagged skill
+and each confirmed owned vessel. A separate vessel hotkey works only while the
+owned slot, aboard state, boat type, and all three name signals agree.
 
 ## Development
 

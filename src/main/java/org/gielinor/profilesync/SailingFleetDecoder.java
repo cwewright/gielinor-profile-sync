@@ -81,6 +81,42 @@ final class SailingFleetDecoder
 		}
 	}
 
+	Map<String, Object> boatName(int prefix, int descriptor, int noun)
+	{
+		Map<String, Object> result = baseResult();
+		List<Integer> rawParts = new ArrayList<>();
+		rawParts.add(prefix);
+		rawParts.add(descriptor);
+		rawParts.add(noun);
+		result.put("rawParts", rawParts);
+		try
+		{
+			String prefixName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS, prefix);
+			String descriptorName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS, descriptor);
+			String nounName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS, noun);
+			if (prefixName == null || descriptorName == null || nounName == null)
+			{
+				result.put("status", "unresolved");
+				return result;
+			}
+
+			String name = safeName((prefixName + " " + descriptorName + " " + nounName).replaceAll("\\s+", " "));
+			if (name == null)
+			{
+				result.put("status", "unresolved");
+				return result;
+			}
+			result.put("status", "resolved");
+			result.put("name", name);
+			return result;
+		}
+		catch (RuntimeException e)
+		{
+			result.put("status", "unavailable");
+			return result;
+		}
+	}
+
 	Map<String, Object> keel(int boatType, int rawValue)
 	{
 		return decodeBoatOption(boatType, DBTableID.SailingBoat.COL_KEEL_OPTION, DBTableID.SailingBoatKeel.COL_NAME, rawValue);
@@ -209,6 +245,16 @@ final class SailingFleetDecoder
 			result.put("status", "unavailable");
 			return result;
 		}
+	}
+
+	private String nameOption(int row, int rawValue)
+	{
+		Object[] options = database.field(row, DBTableID.SailingBoatNameOptions.COL_OPTION, 0);
+		if (rawValue < 0 || rawValue >= options.length || !(options[rawValue] instanceof String))
+		{
+			return null;
+		}
+		return safeName((String) options[rawValue]);
 	}
 
 	private Map<String, Object> decodeSelectedRow(Map<String, Object> result, Object[] options, int rawValue, int nameColumn)

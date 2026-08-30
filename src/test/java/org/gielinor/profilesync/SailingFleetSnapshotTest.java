@@ -63,7 +63,7 @@ public class SailingFleetSnapshotTest
 	}
 
 	@Test
-	public void exportsActiveBoatSignalsWithoutGuessingTheirSlotMeaning()
+	public void leavesActiveBoatUnresolvedWhenTheSlotIsNotOwned()
 	{
 		Map<Integer, Integer> values = new HashMap<>();
 		values.put(VarbitID.SAILING_BOAT_1_OWNED, 1);
@@ -83,7 +83,64 @@ public class SailingFleetSnapshotTest
 		assertEquals(2, signals.get("lastPersonalBoatBoarded"));
 		assertEquals(1, signals.get("playerOnPersonalBoat"));
 		assertEquals(77, signals.get("boardedBoat"));
-		assertEquals(Arrays.asList("activeBoat", "crewAssignments"), result.get("unknownFields"));
+		assertEquals(Arrays.asList("crewAssignments"), result.get("unknownFields"));
+		assertEquals("unresolved", map(result.get("activeBoat")).get("status"));
+		assertEquals("owned-slot-not-exported", map(result.get("activeBoat")).get("reason"));
+	}
+
+	@Test
+	public void confirmsTheActiveBoatOnlyWhenSlotTypeAndNameSignalsAgree()
+	{
+		Map<Integer, Integer> values = new HashMap<>();
+		values.put(VarbitID.SAILING_BOAT_2_OWNED, 1);
+		values.put(VarbitID.SAILING_BOAT_2_TYPE, 2);
+		values.put(VarbitID.SAILING_BOAT_2_NAME_1, 3);
+		values.put(VarbitID.SAILING_BOAT_2_NAME_2, 4);
+		values.put(VarbitID.SAILING_BOAT_2_NAME_3, 5);
+		values.put(VarbitID.SAILING_LAST_PERSONAL_BOAT_BOARDED, 2);
+		values.put(VarbitID.SAILING_PLAYER_IS_ON_PLAYER_BOAT, 1);
+		values.put(VarbitID.SAILING_BOARDED_BOAT_TYPE, 2);
+		values.put(VarbitID.SAILING_BOARDED_BOAT_NAME_1, 3);
+		values.put(VarbitID.SAILING_BOARDED_BOAT_NAME_2, 4);
+		values.put(VarbitID.SAILING_BOARDED_BOAT_NAME_3, 5);
+
+		Map<String, Object> result = SailingFleetSnapshot.build(
+			2600L,
+			id -> values.getOrDefault(id, 0),
+			boatIndex -> unloadedCargo()
+		);
+
+		Map<String, Object> active = map(result.get("activeBoat"));
+		assertEquals("confirmed", active.get("status"));
+		assertEquals("boat-slot-2", active.get("id"));
+		assertEquals(2, active.get("slot"));
+		assertEquals(Arrays.asList("owned-slot-signal", "live-boat-type", "three-part-boat-name"), active.get("correlation"));
+	}
+
+	@Test
+	public void refusesToCorrelateWhenTheLiveNameBelongsToAnotherBoat()
+	{
+		Map<Integer, Integer> values = new HashMap<>();
+		values.put(VarbitID.SAILING_BOAT_1_OWNED, 1);
+		values.put(VarbitID.SAILING_BOAT_1_TYPE, 1);
+		values.put(VarbitID.SAILING_BOAT_1_NAME_1, 1);
+		values.put(VarbitID.SAILING_BOAT_1_NAME_2, 2);
+		values.put(VarbitID.SAILING_BOAT_1_NAME_3, 3);
+		values.put(VarbitID.SAILING_LAST_PERSONAL_BOAT_BOARDED, 1);
+		values.put(VarbitID.SAILING_PLAYER_IS_ON_PLAYER_BOAT, 1);
+		values.put(VarbitID.SAILING_BOARDED_BOAT_TYPE, 1);
+		values.put(VarbitID.SAILING_BOARDED_BOAT_NAME_1, 9);
+		values.put(VarbitID.SAILING_BOARDED_BOAT_NAME_2, 9);
+		values.put(VarbitID.SAILING_BOARDED_BOAT_NAME_3, 9);
+
+		Map<String, Object> active = map(SailingFleetSnapshot.build(
+			2700L,
+			id -> values.getOrDefault(id, 0),
+			boatIndex -> unloadedCargo()
+		).get("activeBoat"));
+
+		assertEquals("unresolved", active.get("status"));
+		assertEquals("boat-name-signals-do-not-match-slot", active.get("reason"));
 	}
 
 	@Test

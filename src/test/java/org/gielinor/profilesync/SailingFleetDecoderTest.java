@@ -84,6 +84,29 @@ public class SailingFleetDecoderTest
 	}
 
 	@Test
+	public void warmsTheNameOptionTableBeforeReadingItsFixedRows()
+	{
+		FakeDatabase database = new FakeDatabase();
+		database.requireNameTableWarmup = true;
+		database.addTableRow(DBTableID.SailingBoatNameOptions.ID,
+			DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS);
+		database.addTableRow(DBTableID.SailingBoatNameOptions.ID,
+			DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS);
+		database.addTableRow(DBTableID.SailingBoatNameOptions.ID,
+			DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS);
+		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS,
+			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "The");
+		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS,
+			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "Wayward");
+		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS,
+			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "Lantern");
+
+		Map<String, Object> decoded = new SailingFleetDecoder(database).boatName(0, 0, 0);
+		assertEquals("resolved", decoded.get("status"));
+		assertEquals("The Wayward Lantern", decoded.get("name"));
+	}
+
+	@Test
 	public void leavesOutOfRangeOrUnsafeBoatNamesUnresolved()
 	{
 		FakeDatabase database = new FakeDatabase();
@@ -149,6 +172,8 @@ public class SailingFleetDecoderTest
 		private final Map<Integer, List<Integer>> tables = new HashMap<>();
 		private final Map<String, Object[]> fields = new HashMap<>();
 		private boolean throwIndexedLookup;
+		private boolean requireNameTableWarmup;
+		private boolean nameTableWarmed;
 
 		private void addBoat(int row, int type, String name)
 		{
@@ -190,11 +215,20 @@ public class SailingFleetDecoderTest
 
 		public List<Integer> tableRows(int table)
 		{
+			if (table == DBTableID.SailingBoatNameOptions.ID)
+			{
+				nameTableWarmed = true;
+			}
 			return tables.getOrDefault(table, Collections.emptyList());
 		}
 
 		public Object[] field(int row, int column, int tupleIndex)
 		{
+			if (requireNameTableWarmup && !nameTableWarmed
+				&& column == DBTableID.SailingBoatNameOptions.COL_OPTION)
+			{
+				throw new IllegalStateException("name option table is cold");
+			}
 			return fields.getOrDefault(key(row, column, tupleIndex), new Object[0]);
 		}
 

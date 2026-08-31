@@ -77,7 +77,7 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.3.11";
+	private static final String PLUGIN_VERSION = "0.3.12";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int COLLECTION_LOG_ENTRY_TITLE_INDEX = 0;

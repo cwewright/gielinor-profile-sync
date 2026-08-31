@@ -91,6 +91,11 @@ final class SailingFleetDecoder
 		result.put("rawParts", rawParts);
 		try
 		{
+			// Initialize the table before reading its fixed rows, matching the access
+			// pattern used by the working Sailing type and component decoders. Some
+			// live clients reject a cold getDBTableField call even though the
+			// persistent name varbits and option table are both present.
+			database.tableRows(DBTableID.SailingBoatNameOptions.ID);
 			String prefixName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS, prefix);
 			String descriptorName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS, descriptor);
 			String nounName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS, noun);

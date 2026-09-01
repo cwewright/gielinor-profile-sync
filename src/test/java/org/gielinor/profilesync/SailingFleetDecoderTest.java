@@ -107,6 +107,25 @@ public class SailingFleetDecoderTest
 	}
 
 	@Test
+	public void resolvesLiveTwoPartBoatNameWhenPrefixIsEmpty()
+	{
+		FakeDatabase database = new FakeDatabase();
+		String[] descriptors = new String[83];
+		descriptors[82] = "Piebald";
+		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS,
+			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "");
+		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS,
+			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, (Object[]) descriptors);
+		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS,
+			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "", "Aegis");
+
+		Map<String, Object> decoded = new SailingFleetDecoder(database).boatName(0, 82, 1);
+		assertEquals("resolved", decoded.get("status"));
+		assertEquals("Piebald Aegis", decoded.get("name"));
+		assertEquals(java.util.Arrays.asList(0, 82, 1), decoded.get("rawParts"));
+	}
+
+	@Test
 	public void leavesOutOfRangeOrUnsafeBoatNamesUnresolved()
 	{
 		FakeDatabase database = new FakeDatabase();

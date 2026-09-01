@@ -96,9 +96,9 @@ final class SailingFleetDecoder
 			// live clients reject a cold getDBTableField call even though the
 			// persistent name varbits and option table are both present.
 			database.tableRows(DBTableID.SailingBoatNameOptions.ID);
-			String prefixName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS, prefix);
-			String descriptorName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS, descriptor);
-			String nounName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS, noun);
+			String prefixName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS, prefix, true);
+			String descriptorName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS, descriptor, false);
+			String nounName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS, noun, false);
 			if (prefixName == null || descriptorName == null || nounName == null)
 			{
 				result.put("status", "unresolved");
@@ -252,14 +252,22 @@ final class SailingFleetDecoder
 		}
 	}
 
-	private String nameOption(int row, int rawValue)
+	private String nameOption(int row, int rawValue, boolean optional)
 	{
 		Object[] options = database.field(row, DBTableID.SailingBoatNameOptions.COL_OPTION, 0);
 		if (rawValue < 0 || rawValue >= options.length || !(options[rawValue] instanceof String))
 		{
-			return null;
+			// Live Sailing names currently use zero for an omitted prefix. Keep that
+			// absence distinct from a missing descriptor or noun so two-part names
+			// such as "Piebald Aegis" still resolve from their persistent varbits.
+			return optional && rawValue == 0 ? "" : null;
 		}
-		return safeName((String) options[rawValue]);
+		String value = ((String) options[rawValue]).replaceAll("<[^>]*>", "").trim();
+		if (value.isEmpty())
+		{
+			return optional ? "" : null;
+		}
+		return safeName(value);
 	}
 
 	private Map<String, Object> decodeSelectedRow(Map<String, Object> result, Object[] options, int rawValue, int nameColumn)

@@ -2,8 +2,13 @@ package org.gielinor.profilesync;
 
 import com.google.gson.Gson;
 import com.google.inject.Provides;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Graphics2D;
 import java.awt.Rectangle;
+import java.awt.RenderingHints;
 import java.awt.Shape;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.time.Instant;
@@ -16,7 +21,10 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.inject.Inject;
+import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
@@ -63,7 +71,9 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.input.KeyManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.DrawManager;
+import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.HotkeyListener;
 import net.runelite.client.util.Text;
@@ -77,9 +87,10 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.3.13";
+	private static final String PLUGIN_VERSION = "0.3.14";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
+	private static final int PLAN_REFRESH_TICKS = 10;
 	private static final int COLLECTION_LOG_ENTRY_TITLE_INDEX = 0;
 	private static final int[] SAILING_CARGO_INVENTORIES = {
 		InventoryID.SAILING_BOAT_1_CARGOHOLD,
@@ -116,9 +127,17 @@ public class GielinorProfileSyncPlugin extends Plugin
 	@Inject
 	private CharacterCaptureOverlay characterCaptureOverlay;
 
+	@Inject
+	private ClientToolbar clientToolbar;
+
 	private ExecutorService fileExecutor;
 	private ProfileExportStore exportStore;
+	private RunelitePlanStore runelitePlanStore;
+	private volatile RunelitePlanPanel runelitePlanPanel;
+	private NavigationButton runelitePlanNavigation;
+	private final AtomicBoolean planRefreshQueued = new AtomicBoolean();
 	private volatile Map<String, Object> previousSnapshot = Collections.emptyMap();
+	private int ticksSincePlanRefresh;
 	private int ticksLoggedIn;
 	private int ticksSinceExport;
 	private String lastRsn = "";
@@ -164,7 +183,17 @@ public class GielinorProfileSyncPlugin extends Plugin
 	@Override
 	protected void startUp()
 	{
-		exportStore = new ProfileExportStore(gson, new File(RuneLite.RUNELITE_DIR, CONFIG_GROUP).toPath());
+		File profileDirectory = new File(RuneLite.RUNELITE_DIR, CONFIG_GROUP);
+		exportStore = new ProfileExportStore(gson, profileDirectory.toPath());
+		runelitePlanStore = new RunelitePlanStore(profileDirectory.toPath());
+		runelitePlanPanel = new RunelitePlanPanel();
+		runelitePlanNavigation = NavigationButton.builder()
+			.tooltip("Sailor's Log plan")
+			.icon(createPlanIcon())
+			.priority(7)
+			.panel(runelitePlanPanel)
+			.build();
+		clientToolbar.addNavigation(runelitePlanNavigation);
 		fileExecutor = Executors.newSingleThreadExecutor(runnable ->
 		{
 			Thread thread = new Thread(runnable, CONFIG_GROUP + "-writer");
@@ -172,6 +201,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 			return thread;
 		});
 		fileExecutor.execute(() -> previousSnapshot = exportStore.readLatest());
+		requestPlanRefresh();
 		fileExecutor.execute(() ->
 		{
 			try
@@ -196,6 +226,14 @@ public class GielinorProfileSyncPlugin extends Plugin
 		keyManager.unregisterKeyListener(captureHotkeyListener);
 		keyManager.unregisterKeyListener(captureVesselHotkeyListener);
 		overlayManager.remove(characterCaptureOverlay);
+		if (runelitePlanNavigation != null)
+		{
+			clientToolbar.removeNavigation(runelitePlanNavigation);
+			runelitePlanNavigation = null;
+		}
+		runelitePlanPanel = null;
+		runelitePlanStore = null;
+		planRefreshQueued.set(false);
 		captureInProgress = false;
 		if (fileExecutor != null)
 		{
@@ -408,6 +446,13 @@ public class GielinorProfileSyncPlugin extends Plugin
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
+		ticksSincePlanRefresh++;
+		if (ticksSincePlanRefresh >= PLAN_REFRESH_TICKS)
+		{
+			ticksSincePlanRefresh = 0;
+			requestPlanRefresh();
+		}
+
 		Player player = client.getLocalPlayer();
 		if (client.getGameState() != GameState.LOGGED_IN || player == null)
 		{
@@ -453,6 +498,64 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 		ticksSinceExport = 0;
 		exportSnapshot(player, rsn);
+	}
+
+	private void requestPlanRefresh()
+	{
+		ExecutorService executor = fileExecutor;
+		RunelitePlanStore store = runelitePlanStore;
+		RunelitePlanPanel panel = runelitePlanPanel;
+		if (executor == null || store == null || panel == null || !planRefreshQueued.compareAndSet(false, true))
+		{
+			return;
+		}
+		try
+		{
+			executor.execute(() ->
+			{
+				try
+				{
+					RunelitePlan plan = store.read();
+					SwingUtilities.invokeLater(() ->
+					{
+						if (runelitePlanPanel == panel)
+						{
+							panel.showPlan(plan);
+						}
+					});
+				}
+				finally
+				{
+					planRefreshQueued.set(false);
+				}
+			});
+		}
+		catch (RejectedExecutionException e)
+		{
+			planRefreshQueued.set(false);
+		}
+	}
+
+	private static BufferedImage createPlanIcon()
+	{
+		BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+		Graphics2D graphics = image.createGraphics();
+		try
+		{
+			graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			graphics.setStroke(new BasicStroke(1.7f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+			graphics.setColor(new Color(216, 179, 96));
+			graphics.drawRoundRect(3, 2, 10, 12, 2, 2);
+			graphics.drawLine(6, 1, 10, 1);
+			graphics.setColor(new Color(111, 203, 189));
+			graphics.drawLine(5, 8, 7, 10);
+			graphics.drawLine(7, 10, 11, 5);
+		}
+		finally
+		{
+			graphics.dispose();
+		}
+		return image;
 	}
 
 	private void exportSnapshot(Player player, String rsn)

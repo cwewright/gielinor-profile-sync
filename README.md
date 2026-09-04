@@ -37,6 +37,12 @@ It also keeps one account-named JSON file in the same directory. Output stays
 local; this plugin performs no network requests. A separate, user-controlled
 sync tool may copy `latest.json` to a private service or repository.
 
+The same companion can place one short-lived Construction or Cooking checklist
+at `runelite-plan.json` in this directory. The plug-in validates that bounded
+file off the client thread and shows it in a read-only Sailor's Log sidebar.
+Checklist ticks are local UI notes only: they do not click, buy, build, cook, or
+otherwise control the game. The plug-in never receives an upload key.
+
 Snapshots refresh on the configured interval and promptly after bank,
 inventory, or equipment changes so short bank visits are not missed.
 
@@ -96,14 +102,14 @@ gradlew.bat clean test previewBootstrapZip
 The artifact is written to:
 
 ```text
-build\distributions\gielinor-profile-sync-preview-bootstrap-0.3.9.zip
+build\distributions\gielinor-profile-sync-preview-bootstrap-0.3.14.zip
 ```
 
 Verify its exact four-file boundary, manifest, hashes, download origins and
 thin-JAR class boundary with Windows PowerShell 5.1:
 
 ```text
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Verify-PreviewBootstrap.ps1 -Path .\build\distributions\gielinor-profile-sync-preview-bootstrap-0.3.9.zip
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Verify-PreviewBootstrap.ps1 -Path .\build\distributions\gielinor-profile-sync-preview-bootstrap-0.3.14.zip
 ```
 
 The preview starts a separate RuneLite profile named

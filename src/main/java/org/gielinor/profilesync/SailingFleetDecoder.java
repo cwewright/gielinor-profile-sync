@@ -93,21 +93,8 @@ final class SailingFleetDecoder
 		result.put("rawParts", rawParts);
 		try
 		{
-			// Initialize the table before reading its fixed rows, matching the access
-			// pattern used by the working Sailing type and component decoders. Some
-			// live clients reject a cold getDBTableField call even though the
-			// persistent name varbits and option table are both present.
-			try
-			{
-				database.tableRows(DBTableID.SailingBoatNameOptions.ID);
-			}
-			catch (RuntimeException e)
-			{
-				// An optional index must not prevent reading the known option rows.
-				log.debug("Sailing name-table index unavailable; reading its fixed rows.", e);
-			}
 			String prefixName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS, prefix, true);
-			String descriptorName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS, descriptor, false);
+			String descriptorName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS, descriptor, true);
 			String nounName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS, noun, false);
 			if (prefixName == null || descriptorName == null || nounName == null)
 			{
@@ -265,15 +252,20 @@ final class SailingFleetDecoder
 
 	private String nameOption(int row, int rawValue, boolean optional)
 	{
-		Object[] options = database.field(row, DBTableID.SailingBoatNameOptions.COL_OPTION, 0);
-		if (rawValue < 0 || rawValue >= options.length || !(options[rawValue] instanceof String))
+		if (rawValue < 0)
 		{
-			// Live Sailing names currently use zero for an omitted prefix. Keep that
-			// absence distinct from a missing descriptor or noun so two-part names
-			// such as "Piebald Aegis" still resolve from their persistent varbits.
-			return optional && rawValue == 0 ? "" : null;
+			return null;
 		}
-		String value = ((String) options[rawValue]).replaceAll("<[^>]*>", "").trim();
+		// Zero selects the default column; custom choices are one-based. The
+		// prefix row can have only a default, with no option column to read.
+		int column = rawValue == 0 ? DBTableID.SailingBoatNameOptions.COL_DEFAULT : DBTableID.SailingBoatNameOptions.COL_OPTION;
+		int index = rawValue == 0 ? 0 : rawValue - 1;
+		Object[] options = database.field(row, column, 0);
+		if (index >= options.length || !(options[index] instanceof String))
+		{
+			return null;
+		}
+		String value = ((String) options[index]).replaceAll("<[^>]*>", "").trim();
 		if (value.isEmpty())
 		{
 			return optional ? "" : null;

@@ -7,7 +7,9 @@ import java.awt.Dimension;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -30,8 +32,10 @@ final class RunelitePlanPanel extends PluginPanel
 	private static final Color CONSTRUCTION_ACCENT = new Color(221, 174, 91);
 	private static final Color COOKING_ACCENT = new Color(223, 112, 71);
 	private final Set<String> locallyChecked = new HashSet<>();
+	private final Set<String> manualOverrides = new HashSet<>();
 	private String revision;
 	private RunelitePlan currentPlan;
+	private Map<String, Integer> inventoryQuantities;
 
 	RunelitePlanPanel()
 	{
@@ -51,6 +55,8 @@ final class RunelitePlanPanel extends PluginPanel
 			currentPlan = null;
 			revision = null;
 			locallyChecked.clear();
+			manualOverrides.clear();
+			inventoryQuantities = null;
 			renderEmpty();
 			return;
 		}
@@ -59,9 +65,50 @@ final class RunelitePlanPanel extends PluginPanel
 			return;
 		}
 		locallyChecked.clear();
+		manualOverrides.clear();
+		inventoryQuantities = null;
 		revision = plan.getRevision();
 		currentPlan = plan;
 		renderPlan();
+	}
+
+	void showInventory(String planRevision, Map<String, Integer> quantities)
+	{
+		if (currentPlan == null || !currentPlan.getRevision().equals(planRevision))
+		{
+			return;
+		}
+		Map<String, Integer> carried = new HashMap<>();
+		for (RunelitePlan.Item item : currentPlan.getItems())
+		{
+			if (item.getRequired() <= 0 || "facility".equals(item.getKind()))
+			{
+				continue;
+			}
+			int quantity = quantities.getOrDefault(item.getLabel().trim().toLowerCase(Locale.ROOT), 0);
+			carried.put(item.getId(), quantity);
+			if (quantity >= item.getRequired() && !manualOverrides.contains(item.getId()))
+			{
+				locallyChecked.add(item.getId());
+			}
+		}
+		if (carried.equals(inventoryQuantities))
+		{
+			return;
+		}
+		inventoryQuantities = carried;
+		renderPlan();
+	}
+
+	void resetSession()
+	{
+		locallyChecked.clear();
+		manualOverrides.clear();
+		inventoryQuantities = null;
+		if (currentPlan != null)
+		{
+			renderPlan();
+		}
 	}
 
 	private void renderEmpty()
@@ -87,11 +134,12 @@ final class RunelitePlanPanel extends PluginPanel
 		JProgressBar progress = new JProgressBar(0, currentPlan.getItems().size());
 		progress.setValue(completedCount());
 		progress.setStringPainted(true);
-		progress.setString(completedCount() + " / " + currentPlan.getItems().size() + " lines covered");
+		progress.setString(completedCount() + " / " + currentPlan.getItems().size() + " lines checked");
 		progress.setForeground(accent);
 		progress.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		progress.setBorder(new EmptyBorder(7, 0, 8, 0));
 		add(progress);
+		add(note("Supplies tick off once enough are in your inventory, and stay checked after use. You can change any check manually."));
 
 		for (RunelitePlan.Item item : currentPlan.getItems())
 		{
@@ -112,11 +160,11 @@ final class RunelitePlanPanel extends PluginPanel
 
 		JCheckBox checkBox = new JCheckBox();
 		checkBox.setOpaque(false);
-		checkBox.setSelected(item.isReady() || locallyChecked.contains(item.getId()));
-		checkBox.setEnabled(!item.isReady());
-		checkBox.setToolTipText(item.isReady() ? "Already covered by the latest account snapshot" : "Mark this line complete on this PC");
+		checkBox.setSelected(locallyChecked.contains(item.getId()));
+		checkBox.setToolTipText("Check or uncheck this supply on this PC");
 		checkBox.addActionListener(event ->
 		{
+			manualOverrides.add(item.getId());
 			if (checkBox.isSelected())
 			{
 				locallyChecked.add(item.getId());
@@ -142,6 +190,14 @@ final class RunelitePlanPanel extends PluginPanel
 		status.setFont(FontManager.getDefaultFont().deriveFont(11f));
 		status.setAlignmentX(Component.LEFT_ALIGNMENT);
 		copy.add(status);
+		if (inventoryQuantities != null && inventoryQuantities.containsKey(item.getId()))
+		{
+			JLabel carried = new JLabel(inventoryQuantities.get(item.getId()) + " / " + item.getRequired() + " in inventory");
+			carried.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+			carried.setFont(FontManager.getDefaultFont().deriveFont(11f));
+			carried.setAlignmentX(Component.LEFT_ALIGNMENT);
+			copy.add(carried);
+		}
 		if (item.getNote() != null)
 		{
 			JLabel itemNote = htmlLabel(item.getNote(), ColorScheme.LIGHT_GRAY_COLOR, 185);
@@ -157,7 +213,7 @@ final class RunelitePlanPanel extends PluginPanel
 		int complete = 0;
 		for (RunelitePlan.Item item : currentPlan.getItems())
 		{
-			if (item.isReady() || locallyChecked.contains(item.getId()))
+			if (locallyChecked.contains(item.getId()))
 			{
 				complete++;
 			}
@@ -175,7 +231,7 @@ final class RunelitePlanPanel extends PluginPanel
 		String suffix = item.isOptional() ? " · optional" : "";
 		if (item.isReady())
 		{
-			return (item.getOwned() == null ? "Ready" : item.getOwned() + " held · ready") + suffix;
+			return (item.getOwned() == null ? "Ready when published" : item.getOwned() + " owned when published") + suffix;
 		}
 		if ("unknown".equals(item.getState()))
 		{

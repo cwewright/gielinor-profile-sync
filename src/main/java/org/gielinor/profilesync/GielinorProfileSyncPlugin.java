@@ -16,6 +16,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -30,6 +31,7 @@ import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.GrandExchangeOffer;
 import net.runelite.api.Item;
+import net.runelite.api.ItemComposition;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.ObjectComposition;
 import net.runelite.api.Player;
@@ -140,6 +142,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private NavigationButton runelitePlanNavigation;
 	private final AtomicBoolean planRefreshQueued = new AtomicBoolean();
 	private int ticksSincePlanRefresh;
+	private RunelitePlan activePlan;
+	private boolean planInventoryDirty = true;
 
 	private ExecutorService fileExecutor;
 	private ProfileExportStore exportStore;
@@ -245,6 +249,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 			runelitePlanNavigation = null;
 		}
 		runelitePlanPanel = null;
+		activePlan = null;
+		planInventoryDirty = true;
 		planRefreshQueued.set(false);
 		captureInProgress = false;
 		if (fileExecutor != null)
@@ -262,6 +268,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		if (event.getGameState() == GameState.LOADING || event.getGameState() == GameState.LOGIN_SCREEN)
 		{
 			pohSnapshots.clearScene();
+			planInventoryDirty = true;
 		}
 	}
 
@@ -458,6 +465,10 @@ public class GielinorProfileSyncPlugin extends Plugin
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
 		int containerId = event.getContainerId();
+		if (containerId == InventoryID.INV)
+		{
+			planInventoryDirty = true;
+		}
 		if (containerId == InventoryID.BANK || containerId == InventoryID.INV || containerId == InventoryID.WORN || isSailingCargoContainer(containerId))
 		{
 			ticksSinceExport = Math.max(10, config.exportIntervalTicks());
@@ -508,6 +519,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 			return;
 		}
 
+		observePlanInventory();
 		requestAutomaticCaptureIfDue();
 
 		int interval = Math.max(10, config.exportIntervalTicks());
@@ -535,10 +547,15 @@ public class GielinorProfileSyncPlugin extends Plugin
 				try
 				{
 					RunelitePlan plan = new RunelitePlanStore(getPluginDirectory()).read();
-					SwingUtilities.invokeLater(() ->
+					clientThread.invokeLater(() ->
 					{
 						if (runelitePlanPanel == panel)
 						{
+							if (plan == null || activePlan == null || !plan.getRevision().equals(activePlan.getRevision()))
+							{
+								planInventoryDirty = true;
+							}
+							activePlan = plan;
 							panel.showPlan(plan);
 						}
 					});
@@ -557,6 +574,38 @@ public class GielinorProfileSyncPlugin extends Plugin
 		{
 			planRefreshQueued.set(false);
 		}
+	}
+
+	private void observePlanInventory()
+	{
+		RunelitePlanPanel panel = runelitePlanPanel;
+		if (!planInventoryDirty || activePlan == null || panel == null)
+		{
+			return;
+		}
+		ItemContainer inventory = client.getItemContainer(InventoryID.INV);
+		if (inventory == null)
+		{
+			return;
+		}
+		Map<String, Integer> quantities = new LinkedHashMap<>();
+		for (Item item : inventory.getItems())
+		{
+			if (item.getId() <= 0 || item.getQuantity() <= 0)
+			{
+				continue;
+			}
+			ItemComposition composition = itemManager.getItemComposition(item.getId());
+			if (composition.getNote() != -1)
+			{
+				continue;
+			}
+			String key = composition.getName().trim().toLowerCase(Locale.ROOT);
+			quantities.merge(key, item.getQuantity(), (left, right) -> (int) Math.min(Integer.MAX_VALUE, (long) left + right));
+		}
+		planInventoryDirty = false;
+		String revision = activePlan.getRevision();
+		SwingUtilities.invokeLater(() -> panel.showInventory(revision, quantities));
 	}
 
 	private static BufferedImage createPlanIcon()
@@ -1423,6 +1472,12 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	private void resetAccount(String rsn)
 	{
+		planInventoryDirty = true;
+		RunelitePlanPanel panel = runelitePlanPanel;
+		if (panel != null)
+		{
+			SwingUtilities.invokeLater(panel::resetSession);
+		}
 		hunterRumours.resetAccount();
 		pohSnapshots.resetAccount();
 		lastRsn = rsn;

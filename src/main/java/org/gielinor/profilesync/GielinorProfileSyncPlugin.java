@@ -46,7 +46,7 @@ import net.runelite.client.plugins.PluginDescriptor;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.0";
+	private static final String PLUGIN_VERSION = "0.1.1";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 
@@ -172,7 +172,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "containers", "grandExchange", "appearance", "playerModel"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "slayerTask", "containers", "grandExchange", "appearance", "playerModel"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -206,6 +206,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("grandExchangeAccountValueEstimate", getLong(grandExchange.get("accountValueEstimate")));
 		snapshot.put("quests", buildQuests());
 		snapshot.put("achievementDiaries", buildAchievementDiaries());
+		snapshot.put("slayer", SlayerTaskSnapshot.build(client, now));
 
 		ExecutorService executor = fileExecutor;
 		if (executor != null)

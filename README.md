@@ -10,6 +10,7 @@ one website or brand.
 - Skill levels and XP, including Sailing
 - Quest states
 - Achievement Diary tier completion
+- Current Slayer assignment, remaining count, assigned area, points, and task streak
 - Bank, inventory, and equipment snapshots with freshness metadata
 - Grand Exchange offers and RuneLite price estimates
 - A player appearance descriptor and compact local-player model for private avatars

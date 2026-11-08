@@ -16,6 +16,11 @@ minor plugin updates remain forwards-compatible.
 - `skills`: keyed by display name with `level`, `boostedLevel`, and `xp`
 - `quests`: totals and entries keyed by RuneLite quest identifier
 - `achievementDiaries`: reward-tier completion by region
+- `slayer`: server-backed assignment state, advertised by the `slayerTask` capability.
+  Includes `taskLoaded`, `taskFromCache`, `taskLastSeenTimestamp`, `status`
+  (`live`, `none`, or `unavailable`), points, and streak. A live `task` includes
+  its monster name when known, remaining and original counts, master ID, and
+  required assignment area when present. An unknown identity is not guessed.
 
 ## Items
 

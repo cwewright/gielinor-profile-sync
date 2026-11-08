@@ -77,47 +77,42 @@ public class SailingFleetDecoderTest
 			"Herring", "Voyager", "Lantern"
 		);
 
-		Map<String, Object> decoded = new SailingFleetDecoder(database).boatName(0, 1, 2);
+		Map<String, Object> decoded = new SailingFleetDecoder(database).boatName(1, 2, 3);
 		assertEquals("resolved", decoded.get("status"));
 		assertEquals("The Wayward Lantern", decoded.get("name"));
-		assertEquals(java.util.Arrays.asList(0, 1, 2), decoded.get("rawParts"));
+		assertEquals(java.util.Arrays.asList(1, 2, 3), decoded.get("rawParts"));
 	}
 
 	@Test
-	public void warmsTheNameOptionTableBeforeReadingItsFixedRows()
+	public void readsDefaultNameColumnsWithoutRequiringAnOptionList()
 	{
 		FakeDatabase database = new FakeDatabase();
-		database.requireNameTableWarmup = true;
-		database.addTableRow(DBTableID.SailingBoatNameOptions.ID,
-			DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS);
-		database.addTableRow(DBTableID.SailingBoatNameOptions.ID,
-			DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS);
-		database.addTableRow(DBTableID.SailingBoatNameOptions.ID,
-			DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS);
+		database.missingPrefixOptions = true;
 		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS,
-			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "The");
+			DBTableID.SailingBoatNameOptions.COL_DEFAULT, 0, "");
 		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS,
-			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "Wayward");
+			DBTableID.SailingBoatNameOptions.COL_DEFAULT, 0, "");
 		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS,
-			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "Lantern");
+			DBTableID.SailingBoatNameOptions.COL_DEFAULT, 0, "Boat");
 
 		Map<String, Object> decoded = new SailingFleetDecoder(database).boatName(0, 0, 0);
 		assertEquals("resolved", decoded.get("status"));
-		assertEquals("The Wayward Lantern", decoded.get("name"));
+		assertEquals("Boat", decoded.get("name"));
 	}
 
 	@Test
 	public void resolvesLiveTwoPartBoatNameWhenPrefixIsEmpty()
 	{
 		FakeDatabase database = new FakeDatabase();
-		String[] descriptors = new String[83];
-		descriptors[82] = "Piebald";
+		database.missingPrefixOptions = true;
+		String[] descriptors = new String[82];
+		descriptors[81] = "Piebald";
 		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS,
-			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "");
+			DBTableID.SailingBoatNameOptions.COL_DEFAULT, 0, "");
 		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS,
 			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, (Object[]) descriptors);
 		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS,
-			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "", "Aegis");
+			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "Aegis");
 
 		Map<String, Object> decoded = new SailingFleetDecoder(database).boatName(0, 82, 1);
 		assertEquals("resolved", decoded.get("status"));
@@ -137,8 +132,9 @@ public class SailingFleetDecoderTest
 			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "Voyager");
 
 		SailingFleetDecoder decoder = new SailingFleetDecoder(database);
-		assertEquals("unresolved", decoder.boatName(0, 0, 0).get("status"));
-		assertEquals("unresolved", decoder.boatName(7, 0, 0).get("status"));
+		assertEquals("unresolved", decoder.boatName(1, 1, 1).get("status"));
+		assertEquals("unresolved", decoder.boatName(7, 1, 1).get("status"));
+		assertEquals("unresolved", decoder.boatName(-1, 1, 1).get("status"));
 	}
 
 	@Test
@@ -187,17 +183,13 @@ public class SailingFleetDecoderTest
 	}
 
 	@Test
-	public void readsKnownNameRowsWhenTheirTableIndexIsUnavailable()
+	public void keepsNamesUnavailableWhenTheGameCannotReadAnOptionColumn()
 	{
 		FakeDatabase database = new FakeDatabase();
-		database.throwNameIndexLookup = true;
-		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS,
-			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "");
-		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS,
-			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "Wayward");
-		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS,
-			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "Lantern");
-		assertEquals("Wayward Lantern", new SailingFleetDecoder(database).boatName(0, 0, 0).get("name"));
+		database.missingPrefixOptions = true;
+		Map<String, Object> decoded = new SailingFleetDecoder(database).boatName(1, 1, 1);
+		assertEquals("unavailable", decoded.get("status"));
+		assertFalse(decoded.containsKey("name"));
 	}
 
 	private static final class FakeDatabase implements SailingFleetDecoder.DatabaseReader
@@ -205,9 +197,7 @@ public class SailingFleetDecoderTest
 		private final Map<Integer, List<Integer>> tables = new HashMap<>();
 		private final Map<String, Object[]> fields = new HashMap<>();
 		private boolean throwIndexedLookup;
-		private boolean throwNameIndexLookup;
-		private boolean requireNameTableWarmup;
-		private boolean nameTableWarmed;
+		private boolean missingPrefixOptions;
 
 		private void addBoat(int row, int type, String name)
 		{
@@ -249,23 +239,15 @@ public class SailingFleetDecoderTest
 
 		public List<Integer> tableRows(int table)
 		{
-			if (table == DBTableID.SailingBoatNameOptions.ID)
-			{
-				if (throwNameIndexLookup)
-				{
-					throw new IllegalStateException("name table has no index");
-				}
-				nameTableWarmed = true;
-			}
 			return tables.getOrDefault(table, Collections.emptyList());
 		}
 
 		public Object[] field(int row, int column, int tupleIndex)
 		{
-			if (requireNameTableWarmup && !nameTableWarmed
+			if (missingPrefixOptions && row == DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS
 				&& column == DBTableID.SailingBoatNameOptions.COL_OPTION)
 			{
-				throw new IllegalStateException("name option table is cold");
+				throw new NullPointerException("Missing option column and table defaults");
 			}
 			return fields.getOrDefault(key(row, column, tupleIndex), new Object[0]);
 		}

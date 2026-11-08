@@ -15,7 +15,11 @@ minor plugin updates remain forwards-compatible.
 
 - `skills`: keyed by display name with `level`, `boostedLevel`, and `xp`
 - `quests`: totals and entries keyed by RuneLite quest identifier
-- `achievementDiaries`: reward-tier completion by region
+- `achievementDiaries`: schema `2` adds task progress by region and tier.
+  Each tier includes `completedTaskCount`, `totalTaskCount`, `tierComplete`,
+  `rewardClaimed`, and `signalStatus`. `complete` remains a compatibility alias
+  for tier completion; `value` retains the raw reward value. Missing signals
+  remain unknown instead of being treated as incomplete.
 - `slayer`: server-backed assignment state, advertised by the `slayerTask` capability.
   Includes `taskLoaded`, `taskFromCache`, `taskLastSeenTimestamp`, `status`
   (`live`, `none`, or `unavailable`), points, and streak. A live `task` includes

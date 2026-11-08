@@ -2,20 +2,19 @@ package org.gielinor.profilesync;
 
 import com.google.gson.Gson;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.io.Reader;
 import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Collections;
 import java.util.Map;
+import net.runelite.client.util.Filepath;
 
 final class ProfileExportStore
 {
 	private final Gson gson;
-	private final Path directory;
+	private final Filepath directory;
 
-	ProfileExportStore(Gson gson, Path directory)
+	ProfileExportStore(Gson gson, Filepath directory)
 	{
 		this.gson = gson.newBuilder().setPrettyPrinting().create();
 		this.directory = directory;
@@ -24,16 +23,15 @@ final class ProfileExportStore
 	@SuppressWarnings("unchecked")
 	Map<String, Object> readLatest()
 	{
-		Path latest = directory.resolve("latest.json");
-		if (!Files.isRegularFile(latest))
+		Filepath latest = directory.join("latest.json");
+		if (!latest.isFile())
 		{
 			return Collections.emptyMap();
 		}
 
-		try
+		try (Reader reader = latest.openBufferedReader())
 		{
-			String json = new String(Files.readAllBytes(latest), StandardCharsets.UTF_8);
-			Map<String, Object> parsed = gson.fromJson(json, Map.class);
+			Map<String, Object> parsed = gson.fromJson(reader, Map.class);
 			return parsed != null ? parsed : Collections.emptyMap();
 		}
 		catch (IOException | RuntimeException e)
@@ -44,23 +42,23 @@ final class ProfileExportStore
 
 	void write(String rsn, Map<String, Object> snapshot) throws IOException
 	{
-		Files.createDirectories(directory);
+		directory.createDirectories();
 		String json = gson.toJson(snapshot) + System.lineSeparator();
-		writeAtomically(directory.resolve("latest.json"), json);
-		writeAtomically(directory.resolve(safeFileName(rsn) + ".json"), json);
+		writeAtomically(directory.join("latest.json"), json);
+		writeAtomically(directory.join(safeFileName(rsn) + ".json"), json);
 	}
 
-	private void writeAtomically(Path destination, String json) throws IOException
+	private void writeAtomically(Filepath destination, String json) throws IOException
 	{
-		Path temporary = destination.resolveSibling(destination.getFileName() + ".tmp");
-		Files.write(temporary, json.getBytes(StandardCharsets.UTF_8));
+		Filepath temporary = directory.join(destination.getFileName() + ".tmp");
+		temporary.write(json);
 		try
 		{
-			Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+			temporary.moveTo(destination, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 		}
 		catch (AtomicMoveNotSupportedException e)
 		{
-			Files.move(temporary, destination, StandardCopyOption.REPLACE_EXISTING);
+			temporary.moveTo(destination, StandardCopyOption.REPLACE_EXISTING);
 		}
 	}
 

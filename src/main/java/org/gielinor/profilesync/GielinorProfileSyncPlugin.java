@@ -2,7 +2,6 @@ package org.gielinor.profilesync;
 
 import com.google.gson.Gson;
 import com.google.inject.Provides;
-import java.io.File;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -30,7 +29,6 @@ import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.kit.KitType;
-import net.runelite.client.RuneLite;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
@@ -40,6 +38,8 @@ import net.runelite.client.plugins.PluginDescriptor;
 @Slf4j
 @PluginDescriptor(
 	name = "Gielinor Profile Sync",
+	legacyDataDirectory = "gielinor-profile-sync",
+	internalName = "gielinor-profile-sync",
 	description = "Exports a privacy-minded local profile for personal dashboards and progression tools.",
 	tags = {"profile", "export", "json", "progress", "avatar"}
 )
@@ -81,14 +81,24 @@ public class GielinorProfileSyncPlugin extends Plugin
 	@Override
 	protected void startUp()
 	{
-		exportStore = new ProfileExportStore(gson, new File(RuneLite.RUNELITE_DIR, CONFIG_GROUP).toPath());
+		exportStore = null;
 		fileExecutor = Executors.newSingleThreadExecutor(runnable ->
 		{
 			Thread thread = new Thread(runnable, CONFIG_GROUP + "-writer");
 			thread.setDaemon(true);
 			return thread;
 		});
-		fileExecutor.execute(() -> previousSnapshot = exportStore.readLatest());
+		fileExecutor.execute(() ->
+		{
+			try
+			{
+				previousSnapshot = getExportStore().readLatest();
+			}
+			catch (IOException e)
+			{
+				log.warn("Could not initialize the local profile directory.", e);
+			}
+		});
 		log.info("Gielinor Profile Sync started.");
 	}
 
@@ -214,11 +224,20 @@ public class GielinorProfileSyncPlugin extends Plugin
 		return source;
 	}
 
+	private ProfileExportStore getExportStore() throws IOException
+	{
+		if (exportStore == null)
+		{
+			exportStore = new ProfileExportStore(gson, getPluginDirectory());
+		}
+		return exportStore;
+	}
+
 	private void writeSnapshot(String rsn, Map<String, Object> snapshot)
 	{
 		try
 		{
-			exportStore.write(rsn, snapshot);
+			getExportStore().write(rsn, snapshot);
 			previousSnapshot = snapshot;
 			log.debug("Wrote local profile snapshot for {}.", rsn);
 		}

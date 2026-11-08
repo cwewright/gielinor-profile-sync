@@ -22,12 +22,15 @@ state, account credentials, Discord details, or other client telemetry.
 After logging in, the plugin writes:
 
 ```text
-%USERPROFILE%\.runelite\gielinor-profile-sync\latest.json
+%USERPROFILE%\.runelite\plugin-data\gielinor-profile-sync\latest.json
 ```
 
 It also keeps one account-named JSON file in the same directory. Output stays
 local; this plugin performs no network requests. A separate, user-controlled
 sync tool may copy `latest.json` to a private service or repository.
+
+RuneLite automatically moves existing exports from `.runelite/gielinor-profile-sync`
+to this directory. Update any external sync tool to use the new path.
 
 Snapshots refresh on the configured interval and promptly after bank,
 inventory, or equipment changes so short bank visits are not missed.

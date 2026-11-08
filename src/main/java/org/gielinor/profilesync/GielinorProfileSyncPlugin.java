@@ -342,7 +342,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 				int id = item.getId();
 				int quantity = item.getQuantity();
-				int price = itemManager.getItemPrice(id);
+				long price = itemManager.getItemPrice(id);
 				long value = (long) price * quantity;
 				Map<String, Object> itemData = new LinkedHashMap<>();
 				itemData.put("slot", slotIndex);
@@ -422,7 +422,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 				}
 
 				int itemId = offer.getItemId();
-				int marketPrice = itemId > 0 ? itemManager.getItemPrice(itemId) : 0;
+				long marketPrice = itemId > 0 ? itemManager.getItemPrice(itemId) : 0;
 				int totalQuantity = offer.getTotalQuantity();
 				int completedQuantity = offer.getQuantitySold();
 				int remainingQuantity = Math.max(0, totalQuantity - completedQuantity);
@@ -457,7 +457,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		return result;
 	}
 
-	private long estimateGrandExchangeValue(String state, int marketPrice, GrandExchangeOffer offer, int completed, int remaining)
+	private long estimateGrandExchangeValue(String state, long marketPrice, GrandExchangeOffer offer, int completed, int remaining)
 	{
 		if (state.contains("SELL"))
 		{

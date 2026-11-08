@@ -14,6 +14,28 @@ public class HunterRumourSnapshotTest
 {
 	@Test
 	@SuppressWarnings("unchecked")
+	public void recognizesRankedHunterNamesInCurrentGuildDialogue()
+	{
+		HunterRumourSnapshot tracker = new HunterRumourSnapshot();
+		assertTrue(tracker.observe(
+			ChatMessageType.DIALOG,
+			"Guild Hunter Teco (Expert)|You're hunting for me at the moment. This rumour<br>"
+				+ "was about a sabre-toothed kyatt. You'll need to bring<br>back one of its teeth.",
+			true,
+			100L
+		));
+
+		Map<String, Object> snapshot = tracker.snapshot();
+		Map<String, Object> current = (Map<String, Object>) snapshot.get("current");
+		assertEquals("active", snapshot.get("status"));
+		assertEquals("teco", current.get("hunterKey"));
+		assertEquals("expert", current.get("hunterTier"));
+		assertEquals("Sabre-toothed kyatt", current.get("rumour"));
+		assertEquals(false, current.get("complete"));
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
 	public void whistleObservationCapturesTheCurrentHunterAndRumour()
 	{
 		HunterRumourSnapshot tracker = new HunterRumourSnapshot();

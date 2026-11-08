@@ -201,7 +201,7 @@ final class HunterRumourSnapshot
 		Map<String, Object> output = new LinkedHashMap<>();
 		output.put("schemaVersion", 1);
 		output.put("source", SOURCE);
-		output.put("sourceVersion", "hunter-rumours-observation-v2");
+		output.put("sourceVersion", "hunter-rumours-observation-v3");
 		output.put("coverage", COVERAGE);
 		output.put("loaded", lastSeenTimestamp > 0);
 		output.put("fromCache", restored && lastSeenTimestamp > 0);
@@ -294,9 +294,16 @@ final class HunterRumourSnapshot
 
 	private static HunterDefinition speakingHunter(String message)
 	{
+		int separator = message.indexOf('|');
+		if (separator < 0)
+		{
+			return null;
+		}
+		String speaker = message.substring(0, separator).trim();
 		for (HunterDefinition hunter : HUNTERS)
 		{
-			if (message.startsWith(hunter.speakerName.toLowerCase(Locale.ROOT) + "|"))
+			String name = hunter.speakerName.toLowerCase(Locale.ROOT);
+			if (speaker.equals(name) || speaker.equals(name + " (" + hunter.tier + ")"))
 			{
 				return hunter;
 			}
@@ -380,7 +387,8 @@ final class HunterRumourSnapshot
 
 	private static String normalized(String value)
 	{
-		return value == null ? "" : value.replaceAll("<[^>]*>", "")
+		return value == null ? "" : value.replaceAll("(?i)<br\\s*/?>", " ")
+			.replaceAll("<[^>]*>", "")
 			.replace('’', '\'')
 			.replaceAll("\\s+", " ")
 			.trim()

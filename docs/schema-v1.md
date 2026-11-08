@@ -42,6 +42,11 @@ minor plugin updates remain forwards-compatible.
   are relative to that portal, not world coordinates. A retained inspection has
   `fromCache: true`; unvisited or unobserved furniture is not inferred.
 
+- `sailing`: schema `3` describes owned boat slots, game-resolved names and
+  components, and independently freshness-marked cargo. Unresolved labels remain
+  unknown. `activeBoat` is confirmed only when ownership, slot, type, and name
+  signals agree; crew assignments and unobserved cargo are not inferred.
+
 ## Items
 
 `inventory`, `equipment`, and `bank` each include `loaded`, `value`,

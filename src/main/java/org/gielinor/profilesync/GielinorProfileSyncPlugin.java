@@ -66,10 +66,18 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.5";
+	private static final String PLUGIN_VERSION = "0.1.6";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int COLLECTION_LOG_ENTRY_TITLE_INDEX = 0;
+	private static final int[] SAILING_CARGO_INVENTORIES = {
+		InventoryID.SAILING_BOAT_1_CARGOHOLD,
+		InventoryID.SAILING_BOAT_2_CARGOHOLD,
+		InventoryID.SAILING_BOAT_3_CARGOHOLD,
+		InventoryID.SAILING_BOAT_4_CARGOHOLD,
+		InventoryID.SAILING_BOAT_5_CARGOHOLD
+	};
+
 
 	@Inject
 	private Client client;
@@ -99,6 +107,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private CachedContainer lastGoodBank;
 	private CachedContainer lastGoodInventory;
 	private CachedContainer lastGoodEquipment;
+	private final CachedContainer[] lastGoodSailingCargo = new CachedContainer[SAILING_CARGO_INVENTORIES.length];
 
 	@Provides
 	GielinorProfileSyncConfig provideConfig(ConfigManager configManager)
@@ -311,7 +320,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
 		int containerId = event.getContainerId();
-		if (containerId == InventoryID.BANK || containerId == InventoryID.INV || containerId == InventoryID.WORN)
+		if (containerId == InventoryID.BANK || containerId == InventoryID.INV || containerId == InventoryID.WORN || isSailingCargoContainer(containerId))
 		{
 			ticksSinceExport = Math.max(10, config.exportIntervalTicks());
 		}
@@ -365,7 +374,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "playerOwnedHouse", "playerOwnedHouseLayout", "collectionLogPageObservations", "containers", "grandExchange", "appearance", "playerModel"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "playerOwnedHouse", "playerOwnedHouseLayout", "collectionLogPageObservations", "containers", "sailingFleet", "sailingBoatNames", "grandExchange", "appearance", "playerModel"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -383,6 +392,26 @@ public class GielinorProfileSyncPlugin extends Plugin
 		putContainer(snapshot, "inventory", inventory);
 		putContainer(snapshot, "equipment", equipment);
 		putContainer(snapshot, "bank", bank);
+
+		List<Map<String, Object>> sailingCargo = new ArrayList<>(SAILING_CARGO_INVENTORIES.length);
+		for (int boatIndex = 0; boatIndex < SAILING_CARGO_INVENTORIES.length; boatIndex++)
+		{
+			CachedContainer cargo = chooseSailingCargo(
+				boatIndex,
+				buildContainer(SAILING_CARGO_INVENTORIES[boatIndex]),
+				lastGoodSailingCargo[boatIndex],
+				now,
+				rsn
+			);
+			lastGoodSailingCargo[boatIndex] = cargo;
+			sailingCargo.add(nestedContainer(cargo));
+		}
+		snapshot.put("sailing", SailingFleetSnapshot.build(
+			now,
+			client::getVarbitValue,
+			sailingCargo::get,
+			SailingFleetDecoder.forClient(client)
+		));
 
 		long inventoryValue = inventory.loaded ? getLong(inventory.data.get("value")) : 0;
 		long equipmentValue = equipment.loaded ? getLong(equipment.data.get("value")) : 0;
@@ -640,6 +669,76 @@ public class GielinorProfileSyncPlugin extends Plugin
 		return new CachedContainer(current, false, false, 0);
 	}
 
+	private CachedContainer chooseSailingCargo(int boatIndex, Map<String, Object> current, CachedContainer memory, long now, String rsn)
+	{
+		if (Boolean.TRUE.equals(current.get("loaded")))
+		{
+			return new CachedContainer(current, true, false, now);
+		}
+		if (memory != null && memory.loaded)
+		{
+			return new CachedContainer(memory.data, true, true, memory.lastSeenTimestamp);
+		}
+
+		Map<String, Object> previous = previousSnapshot;
+		if (rsn.equals(previous.get("rsn")) && previous.get("sailing") instanceof Map)
+		{
+			@SuppressWarnings("unchecked")
+			Map<String, Object> previousSailing = (Map<String, Object>) previous.get("sailing");
+			Object previousBoats = previousSailing.get("boats");
+			if (previousBoats instanceof List)
+			{
+				for (Object rawBoat : (List<?>) previousBoats)
+				{
+					if (!(rawBoat instanceof Map))
+					{
+						continue;
+					}
+					Map<?, ?> boat = (Map<?, ?>) rawBoat;
+					if (getInt(boat.get("slot")) != boatIndex + 1 || !(boat.get("cargo") instanceof Map))
+					{
+						continue;
+					}
+					@SuppressWarnings("unchecked")
+					Map<String, Object> previousCargo = (Map<String, Object>) boat.get("cargo");
+					if (!Boolean.TRUE.equals(previousCargo.get("loaded")))
+					{
+						continue;
+					}
+					long lastSeen = getLong(previousCargo.get("lastSeenTimestamp"));
+					if (lastSeen <= 0)
+					{
+						lastSeen = getLong(previousSailing.get("fleetLastSeenTimestamp"));
+					}
+					return new CachedContainer(previousCargo, true, true, lastSeen);
+				}
+			}
+		}
+
+		return new CachedContainer(current, false, false, 0);
+	}
+
+	private Map<String, Object> nestedContainer(CachedContainer container)
+	{
+		Map<String, Object> result = new LinkedHashMap<>(container.data);
+		result.put("loaded", container.loaded);
+		result.put("fromCache", container.fromCache);
+		result.put("lastSeenTimestamp", container.lastSeenTimestamp);
+		return result;
+	}
+
+	private boolean isSailingCargoContainer(int containerId)
+	{
+		for (int sailingCargoInventory : SAILING_CARGO_INVENTORIES)
+		{
+			if (containerId == sailingCargoInventory)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private void putContainer(Map<String, Object> snapshot, String key, CachedContainer container)
 	{
 		snapshot.put(key, container.data);
@@ -792,6 +891,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		lastGoodBank = null;
 		lastGoodInventory = null;
 		lastGoodEquipment = null;
+		Arrays.fill(lastGoodSailingCargo, null);
 	}
 
 	private void resetAccount(String rsn)
@@ -803,6 +903,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		lastGoodBank = null;
 		lastGoodInventory = null;
 		lastGoodEquipment = null;
+		Arrays.fill(lastGoodSailingCargo, null);
 		ticksSinceExport = Math.max(10, config.exportIntervalTicks());
 	}
 

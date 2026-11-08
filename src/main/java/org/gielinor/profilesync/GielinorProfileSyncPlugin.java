@@ -23,16 +23,24 @@ import net.runelite.api.Player;
 import net.runelite.api.PlayerComposition;
 import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
+import net.runelite.api.ScriptID;
 import net.runelite.api.Skill;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.ScriptPostFired;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.gameval.VarPlayerID;
+import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.kit.KitType;
+import net.runelite.api.widgets.Widget;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.util.Text;
 
 @Slf4j
 @PluginDescriptor(
@@ -45,9 +53,10 @@ import net.runelite.client.plugins.PluginDescriptor;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.2";
+	private static final String PLUGIN_VERSION = "0.1.3";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
+	private static final int COLLECTION_LOG_ENTRY_TITLE_INDEX = 0;
 
 	@Inject
 	private Client client;
@@ -60,6 +69,11 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	@Inject
 	private GielinorProfileSyncConfig config;
+
+	@Inject
+	private ClientThread clientThread;
+
+	private final CollectionLogAccountSnapshots collectionLogSnapshots = new CollectionLogAccountSnapshots();
 
 	private ExecutorService fileExecutor;
 	private ProfileExportStore exportStore;
@@ -111,6 +125,90 @@ public class GielinorProfileSyncPlugin extends Plugin
 		}
 		resetSession();
 		log.info("Gielinor Profile Sync stopped.");
+	}
+
+	@Subscribe
+	public void onScriptPostFired(ScriptPostFired event)
+	{
+		if (event.getScriptId() != ScriptID.COLLECTION_DRAW_LIST)
+		{
+			return;
+		}
+		Player localPlayer = client.getLocalPlayer();
+		if (client.getGameState() != GameState.LOGGED_IN
+			|| localPlayer == null
+			|| client.getVarbitValue(VarbitID.COLLECTION_POH_HOST_BOOK_OPEN) != 0)
+		{
+			return;
+		}
+		String rsn = localPlayer.getName();
+		if (rsn == null || rsn.trim().isEmpty())
+		{
+			return;
+		}
+
+		Widget header = client.getWidget(InterfaceID.Collection.HEADER_TEXT);
+		Widget contents = client.getWidget(InterfaceID.Collection.ITEMS_CONTENTS);
+		if (header == null || header.getChildren() == null || contents == null || contents.getChildren() == null)
+		{
+			return;
+		}
+		Widget titleWidget = header.getChild(COLLECTION_LOG_ENTRY_TITLE_INDEX);
+		if (titleWidget == null || titleWidget.getText() == null)
+		{
+			return;
+		}
+
+		List<CollectionLogSnapshot.ItemObservation> items = new ArrayList<>();
+		for (Widget child : contents.getChildren())
+		{
+			if (child == null)
+			{
+				continue;
+			}
+			int itemId = child.getItemId();
+			if (itemId <= 0)
+			{
+				continue;
+			}
+			String itemName = itemManager.getItemComposition(itemId).getName();
+			items.add(new CollectionLogSnapshot.ItemObservation(
+				itemId,
+				itemName,
+				child.getOpacity() == 0,
+				child.getItemQuantity()
+			));
+		}
+
+		String category = activeCollectionLogCategory();
+		long observedAt = System.currentTimeMillis();
+		CollectionLogSnapshot collectionLogSnapshot = collectionLogSnapshots.activate(rsn);
+		collectionLogSnapshot.observeUniqueCounts(
+			client.getVarpValue(VarPlayerID.COLLECTION_COUNT),
+			client.getVarpValue(VarPlayerID.COLLECTION_COUNT_MAX),
+			observedAt
+		);
+		if (collectionLogSnapshot.observePage(category, Text.removeTags(titleWidget.getText()), items, observedAt))
+		{
+			ticksSinceExport = Math.max(10, config.exportIntervalTicks());
+		}
+	}
+
+	private String activeCollectionLogCategory()
+	{
+		Widget tabs = client.getWidget(InterfaceID.Collection.TABS);
+		if (tabs == null || tabs.getStaticChildren() == null)
+		{
+			return null;
+		}
+		Widget[] children = tabs.getStaticChildren();
+		int activeIndex = client.getVarbitValue(VarbitID.COLLECTION_LAST_TAB);
+		if (activeIndex < 0 || activeIndex >= children.length || children[activeIndex] == null)
+		{
+			return null;
+		}
+		String rawName = children[activeIndex].getName();
+		return rawName == null ? null : Text.removeTags(rawName);
 	}
 
 	@Subscribe
@@ -171,7 +269,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "containers", "grandExchange", "appearance", "playerModel"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "collectionLogPageObservations", "containers", "grandExchange", "appearance", "playerModel"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -206,6 +304,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("quests", buildQuests());
 		snapshot.put("achievementDiaries", AchievementDiarySnapshot.build(client::getVarbitValue));
 		snapshot.put("slayer", SlayerTaskSnapshot.build(client, now));
+		snapshot.put("collectionLog", collectionLogSnapshots.current().toMap());
 
 		ExecutorService executor = fileExecutor;
 		if (executor != null)
@@ -237,7 +336,13 @@ public class GielinorProfileSyncPlugin extends Plugin
 	{
 		try
 		{
-			getExportStore().write(rsn, snapshot);
+			ProfileExportStore store = getExportStore();
+			Map<String, Object> accountSnapshot = store.readAccount(rsn);
+			Object mergedCollectionLog = CollectionLogAccountSnapshots.mergeForExport(
+				accountSnapshot.get("collectionLog"), snapshot.get("collectionLog"));
+			snapshot.put("collectionLog", mergedCollectionLog);
+			store.write(rsn, snapshot);
+			clientThread.invokeLater(() -> collectionLogSnapshots.merge(rsn, mergedCollectionLog));
 			previousSnapshot = snapshot;
 			log.debug("Wrote local profile snapshot for {}.", rsn);
 		}
@@ -558,6 +663,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		ticksLoggedIn = 0;
 		ticksSinceExport = 0;
 		lastRsn = "";
+		collectionLogSnapshots.deactivate();
 		lastGoodBank = null;
 		lastGoodInventory = null;
 		lastGoodEquipment = null;
@@ -566,6 +672,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private void resetAccount(String rsn)
 	{
 		lastRsn = rsn;
+		collectionLogSnapshots.activate(rsn);
 		lastGoodBank = null;
 		lastGoodInventory = null;
 		lastGoodEquipment = null;

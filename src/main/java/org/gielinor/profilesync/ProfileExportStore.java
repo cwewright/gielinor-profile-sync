@@ -16,14 +16,23 @@ final class ProfileExportStore
 
 	ProfileExportStore(Gson gson, Filepath directory)
 	{
-		this.gson = gson.newBuilder().setPrettyPrinting().create();
+		this.gson = gson.newBuilder().serializeNulls().setPrettyPrinting().create();
 		this.directory = directory;
 	}
 
-	@SuppressWarnings("unchecked")
 	Map<String, Object> readLatest()
 	{
-		Filepath latest = directory.join("latest.json");
+		return read(directory.join("latest.json"));
+	}
+
+	Map<String, Object> readAccount(String rsn)
+	{
+		return read(directory.join(safeFileName(rsn) + ".json"));
+	}
+
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> read(Filepath latest)
+	{
 		if (!latest.isFile())
 		{
 			return Collections.emptyMap();

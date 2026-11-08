@@ -8,6 +8,7 @@ one website or brand.
 ## What it exports
 
 - Skill levels and XP, including Sailing
+- Collection Log pages you have opened, retained separately for each account
 - Quest states
 - Achievement Diary task counts, tier completion, and separately claimed rewards
 - Current Slayer assignment, remaining count, assigned area, points, and task streak

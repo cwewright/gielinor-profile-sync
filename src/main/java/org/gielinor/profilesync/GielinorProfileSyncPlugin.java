@@ -25,6 +25,8 @@ import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
 import net.runelite.api.ScriptID;
 import net.runelite.api.Skill;
+import net.runelite.api.coords.WorldPoint;
+import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.ScriptPostFired;
@@ -53,7 +55,7 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.3";
+	private static final String PLUGIN_VERSION = "0.1.4";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int COLLECTION_LOG_ENTRY_TITLE_INDEX = 0;
@@ -73,6 +75,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	@Inject
 	private ClientThread clientThread;
 
+	private final HunterRumourSnapshot hunterRumours = new HunterRumourSnapshot();
 	private final CollectionLogAccountSnapshots collectionLogSnapshots = new CollectionLogAccountSnapshots();
 
 	private ExecutorService fileExecutor;
@@ -212,6 +215,20 @@ public class GielinorProfileSyncPlugin extends Plugin
 	}
 
 	@Subscribe
+	public void onChatMessage(ChatMessage event)
+	{
+		Player player = client.getLocalPlayer();
+		if (client.getGameState() != GameState.LOGGED_IN || player == null || !lastRsn.equals(player.getName()))
+		{
+			return;
+		}
+		if (hunterRumours.observe(event.getType(), event.getMessage(), isInHunterBurrows(), System.currentTimeMillis()))
+		{
+			ticksSinceExport = Math.max(10, config.exportIntervalTicks());
+		}
+	}
+
+	@Subscribe
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
 		int containerId = event.getContainerId();
@@ -269,7 +286,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "collectionLogPageObservations", "containers", "grandExchange", "appearance", "playerModel"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "collectionLogPageObservations", "containers", "grandExchange", "appearance", "playerModel"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -303,6 +320,11 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("grandExchangeAccountValueEstimate", getLong(grandExchange.get("accountValueEstimate")));
 		snapshot.put("quests", buildQuests());
 		snapshot.put("achievementDiaries", AchievementDiarySnapshot.build(client::getVarbitValue));
+		if (rsn.equals(previousSnapshot.get("rsn")))
+		{
+			hunterRumours.restore(previousSnapshot.get("hunterRumours"));
+		}
+		snapshot.put("hunterRumours", hunterRumours.snapshot());
 		snapshot.put("slayer", SlayerTaskSnapshot.build(client, now));
 		snapshot.put("collectionLog", collectionLogSnapshots.current().toMap());
 
@@ -330,6 +352,19 @@ public class GielinorProfileSyncPlugin extends Plugin
 			exportStore = new ProfileExportStore(gson, getPluginDirectory());
 		}
 		return exportStore;
+	}
+
+	private boolean isInHunterBurrows()
+	{
+		Player localPlayer = client.getLocalPlayer();
+		if (localPlayer == null)
+		{
+			return false;
+		}
+		WorldPoint location = localPlayer.getWorldLocation();
+		return location.getPlane() == 0
+			&& location.getX() >= 1549 && location.getX() <= 1565
+			&& location.getY() >= 9449 && location.getY() <= 9464;
 	}
 
 	private void writeSnapshot(String rsn, Map<String, Object> snapshot)
@@ -664,6 +699,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		ticksSinceExport = 0;
 		lastRsn = "";
 		collectionLogSnapshots.deactivate();
+		hunterRumours.resetAccount();
 		lastGoodBank = null;
 		lastGoodInventory = null;
 		lastGoodEquipment = null;
@@ -671,6 +707,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	private void resetAccount(String rsn)
 	{
+		hunterRumours.resetAccount();
 		lastRsn = rsn;
 		collectionLogSnapshots.activate(rsn);
 		lastGoodBank = null;

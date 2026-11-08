@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
+import javax.imageio.stream.MemoryCacheImageOutputStream;
 
 final class CaptureBundle
 {
@@ -67,7 +68,11 @@ final class CaptureBundle
 			Math.max(1, (int) Math.round(viewport.width * 0.64)),
 			Math.max(1, (int) Math.round(viewport.height * 0.78))
 		);
-		return centralScene.intersection(viewport).intersection(canvas);
+		// At small window sizes, a percentage-only crop can overlap the fixed-size
+		// chat box and right-hand panels. Reserve their standard UI edges as well.
+		Rectangle uiFreeBounds = new Rectangle(0, 0,
+			Math.max(0, canvasWidth - 250), Math.max(0, canvasHeight - 190));
+		return centralScene.intersection(viewport).intersection(canvas).intersection(uiFreeBounds);
 	}
 
 	static Rectangle prepareFrameMetadata(
@@ -443,12 +448,14 @@ final class CaptureBundle
 
 	private static byte[] encodePng(BufferedImage image) throws IOException
 	{
-		try (ByteArrayOutputStream output = new ByteArrayOutputStream())
+		try (ByteArrayOutputStream output = new ByteArrayOutputStream();
+			MemoryCacheImageOutputStream imageOutput = new MemoryCacheImageOutputStream(output))
 		{
-			if (!ImageIO.write(image, "png", output))
+			if (!ImageIO.write(image, "png", imageOutput))
 			{
 				throw new IOException("No PNG image writer is available.");
 			}
+			imageOutput.flush();
 			return output.toByteArray();
 		}
 	}

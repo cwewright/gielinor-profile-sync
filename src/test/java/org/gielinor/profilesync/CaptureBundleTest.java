@@ -29,9 +29,19 @@ public class CaptureBundleTest
 	{
 		Rectangle crop = CaptureBundle.buildSafeCaptureCrop(0, 0, 1600, 1000, 1600, 1000, true);
 
-		assertEquals(new Rectangle(288, 40, 1024, 780), crop);
+		assertEquals(new Rectangle(288, 40, 1024, 770), crop);
 		assertTrue(crop.getMaxX() < 1400);
 		assertTrue(crop.getMaxY() < 850);
+	}
+
+	@Test
+	public void keepsStandardUiOutsideSmallResizableCaptures()
+	{
+		Rectangle crop = CaptureBundle.buildSafeCaptureCrop(0, 0, 765, 503, 765, 503, true);
+		assertFalse(crop.isEmpty());
+		assertTrue(crop.getMaxX() <= 515);
+		assertTrue(crop.getMaxY() <= 313);
+		assertTrue(CaptureBundle.buildSafeCaptureCrop(0, 0, 200, 150, 200, 150, true).isEmpty());
 	}
 
 	@Test

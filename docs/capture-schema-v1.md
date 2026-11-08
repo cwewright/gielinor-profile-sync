@@ -1,7 +1,7 @@
 # Character capture schema v1
 
 Each completed history scene is a PNG and JSON pair with the same UUID stem in
-`.runelite/gielinor-profile-sync/captures/pending`. The PNG moves into place
+`.runelite/plugin-data/gielinor-profile-sync/captures/pending`. The PNG moves into place
 first; the JSON manifest moves last and is the ready marker for a sync tool.
 
 ## Identity and source

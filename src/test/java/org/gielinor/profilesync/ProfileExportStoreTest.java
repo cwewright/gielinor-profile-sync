@@ -71,4 +71,32 @@ public class ProfileExportStoreTest
 		assertEquals("player", ProfileExportStore.safeFileName(null));
 		assertEquals("_CON", ProfileExportStore.safeFileName("CON"));
 	}
+
+	@Test
+	public void readsEachAccountSnapshotInsteadOfOnlyLatest() throws Exception
+	{
+		Filepath directory = Filepath.Unchecked.getRooted(temporaryFolder.getRoot().toPath());
+		ProfileExportStore store = new ProfileExportStore(new Gson(), directory);
+		store.write("Sailor A", Map.of("rsn", "Sailor A"));
+		store.write("Sailor B", Map.of("rsn", "Sailor B"));
+
+		assertEquals("Sailor B", store.readLatest().get("rsn"));
+		assertEquals("Sailor A", store.readAccount("Sailor A").get("rsn"));
+		assertEquals("Sailor B", store.readAccount("Sailor B").get("rsn"));
+		assertTrue(store.readAccount("Unseen account").isEmpty());
+	}
+
+	@Test
+	public void preservesExplicitUnknownSignals() throws Exception
+	{
+		Filepath directory = Filepath.Unchecked.getRooted(temporaryFolder.getRoot().toPath());
+		ProfileExportStore store = new ProfileExportStore(new Gson(), directory);
+		Map<String, Object> snapshot = new LinkedHashMap<>();
+		snapshot.put("uniqueItemCount", null);
+		store.write("Player", snapshot);
+
+		Map<String, Object> restored = store.readAccount("Player");
+		assertTrue(restored.containsKey("uniqueItemCount"));
+		assertEquals(null, restored.get("uniqueItemCount"));
+	}
 }

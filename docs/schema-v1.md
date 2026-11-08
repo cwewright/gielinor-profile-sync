@@ -26,6 +26,12 @@ minor plugin updates remain forwards-compatible.
   its monster name when known, remaining and original counts, master ID, and
   required assignment area when present. An unknown identity is not guessed.
 
+- `collectionLog`: observed Collection Log pages and unique-item totals, advertised
+  by `collectionLogPageObservations`. Coverage is `observed-pages-only`: unopened
+  pages remain unknown. Item slots include their observed ownership and quantity.
+  Observations persist separately for each account; other players' house logs
+  are ignored. Bank contents are not used to infer Collection Log progress.
+
 ## Items
 
 `inventory`, `equipment`, and `bank` each include `loaded`, `value`,

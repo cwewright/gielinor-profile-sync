@@ -186,11 +186,26 @@ public class SailingFleetDecoderTest
 		assertFalse(decoder.boatType(2).containsKey("name"));
 	}
 
+	@Test
+	public void readsKnownNameRowsWhenTheirTableIndexIsUnavailable()
+	{
+		FakeDatabase database = new FakeDatabase();
+		database.throwNameIndexLookup = true;
+		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS,
+			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "");
+		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS,
+			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "Wayward");
+		database.set(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS,
+			DBTableID.SailingBoatNameOptions.COL_OPTION, 0, "Lantern");
+		assertEquals("Wayward Lantern", new SailingFleetDecoder(database).boatName(0, 0, 0).get("name"));
+	}
+
 	private static final class FakeDatabase implements SailingFleetDecoder.DatabaseReader
 	{
 		private final Map<Integer, List<Integer>> tables = new HashMap<>();
 		private final Map<String, Object[]> fields = new HashMap<>();
 		private boolean throwIndexedLookup;
+		private boolean throwNameIndexLookup;
 		private boolean requireNameTableWarmup;
 		private boolean nameTableWarmed;
 
@@ -236,6 +251,10 @@ public class SailingFleetDecoderTest
 		{
 			if (table == DBTableID.SailingBoatNameOptions.ID)
 			{
+				if (throwNameIndexLookup)
+				{
+					throw new IllegalStateException("name table has no index");
+				}
 				nameTableWarmed = true;
 			}
 			return tables.getOrDefault(table, Collections.emptyList());

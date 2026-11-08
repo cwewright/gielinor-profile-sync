@@ -7,10 +7,12 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.gameval.DBTableID;
 
 /** Resolves Sailing signals through the selected vessel's ordered game-DB option lists. */
+@Slf4j
 final class SailingFleetDecoder
 {
 	interface DatabaseReader
@@ -95,7 +97,15 @@ final class SailingFleetDecoder
 			// pattern used by the working Sailing type and component decoders. Some
 			// live clients reject a cold getDBTableField call even though the
 			// persistent name varbits and option table are both present.
-			database.tableRows(DBTableID.SailingBoatNameOptions.ID);
+			try
+			{
+				database.tableRows(DBTableID.SailingBoatNameOptions.ID);
+			}
+			catch (RuntimeException e)
+			{
+				// An optional index must not prevent reading the known option rows.
+				log.debug("Sailing name-table index unavailable; reading its fixed rows.", e);
+			}
 			String prefixName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_PREFIX_OPTIONS, prefix, true);
 			String descriptorName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_DESCRIPTOR_OPTIONS, descriptor, false);
 			String nounName = nameOption(DBTableID.SailingBoatNameOptions.Row.SAILING_BOAT_NAME_NOUN_OPTIONS, noun, false);
@@ -117,6 +127,7 @@ final class SailingFleetDecoder
 		}
 		catch (RuntimeException e)
 		{
+			log.debug("Sailing name-option rows are unavailable.", e);
 			result.put("status", "unavailable");
 			return result;
 		}

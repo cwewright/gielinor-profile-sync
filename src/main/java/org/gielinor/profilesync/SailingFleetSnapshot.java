@@ -225,7 +225,7 @@ final class SailingFleetSnapshot
 		Map<String, Object> result = new LinkedHashMap<>();
 		result.put("schemaVersion", 3);
 		result.put("source", "RuneLite persistent Sailing gamevals, game DB labels, and cargo containers");
-		result.put("sourceVersion", "runelite-1.12.35-gamevals");
+		result.put("sourceVersion", "runelite-1.13.6-gamevals");
 		result.put("fleetFromCache", false);
 		result.put("fleetLastSeenTimestamp", timestamp);
 		result.put("unknownFields", Arrays.asList("crewAssignments"));

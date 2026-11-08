@@ -68,6 +68,19 @@ Run the RuneLite development client with:
 gradlew.bat run
 ```
 
+On Windows, a shortcut can target `powershell.exe` with arguments
+`-NoExit -NoProfile -ExecutionPolicy Bypass -File "F:\Repos\gielinor-profile-sync\scripts\Start-Preview.ps1"`.
+Adjust the path if you move the checkout. The script runs from its own repository
+and uses your normal Gradle cache, without depending on a temporary Codex folder.
+
+The preview currently pins RuneLite 1.13.6. If returning after a game update,
+check that this matches the current RuneLite release; an obsolete development
+client can fail to load worlds or prices. Updating the pin also requires updating
+the dependency lockfile and verification metadata, then running the tests.
+For Jagex accounts, follow RuneLite's
+[Using Jagex Accounts](https://github.com/runelite/runelite/wiki/Using-Jagex-Accounts)
+guide to sign in through the development client's Jagex auth sidebar.
+
 ### Windows developer-preview bootstrap
 
 The releaseable pre-Plugin-Hub Windows bootstrap contains only the thin

@@ -13,7 +13,7 @@ repositories {
 	mavenCentral()
 }
 
-ext.runeLiteVersion = '1.12.35'
+ext.runeLiteVersion = '1.13.6'
 ext.previewMainClass = 'org.gielinor.profilesync.GielinorProfileSyncPreview'
 
 dependencies {

@@ -32,6 +32,11 @@ minor plugin updates remain forwards-compatible.
   Observations persist separately for each account; other players' house logs
   are ignored. Bank contents are not used to infer Collection Log progress.
 
+- `hunterRumours`: observed Hunter Guild assignments, rare-piece completion, and
+  last-seen timestamps. `coverage` is `observed-dialogue-and-whistle`; unobserved
+  masters and completion totals remain unknown. Restored observations are marked
+  `fromCache`. Raw chat and exact player coordinates are not exported.
+
 ## Items
 
 `inventory`, `equipment`, and `bank` each include `loaded`, `value`,

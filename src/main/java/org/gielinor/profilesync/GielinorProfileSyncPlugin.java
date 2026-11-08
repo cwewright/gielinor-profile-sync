@@ -88,9 +88,10 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.8";
+	private static final String PLUGIN_VERSION = "0.1.9";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
+	private static final int MODEL_SAMPLE_INTERVAL_TICKS = 10;
 	private static final int PLAN_REFRESH_TICKS = 10;
 	private static final int COLLECTION_LOG_ENTRY_TITLE_INDEX = 0;
 	private static final int[] SAILING_CARGO_INVENTORIES = {
@@ -146,6 +147,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private volatile Map<String, Object> previousSnapshot = Collections.emptyMap();
 	private int ticksLoggedIn;
 	private int ticksSinceExport;
+	private int ticksSinceModelSample;
+	private final PlayerModelVariantLibrary modelVariantLibrary = new PlayerModelVariantLibrary();
 	private String lastRsn = "";
 	private CachedContainer lastGoodBank;
 	private CachedContainer lastGoodInventory;
@@ -494,6 +497,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 		ticksLoggedIn++;
 		ticksSinceExport++;
+		ticksSinceModelSample++;
 		if (config.automaticCaptures())
 		{
 			ticksSinceAutomaticCapture++;
@@ -508,6 +512,11 @@ public class GielinorProfileSyncPlugin extends Plugin
 			return;
 		}
 
+		if (ticksSinceModelSample >= MODEL_SAMPLE_INTERVAL_TICKS)
+		{
+			ticksSinceModelSample = 0;
+			observePlayerModel(player);
+		}
 		requestAutomaticCaptureIfDue();
 
 		int interval = Math.max(10, config.exportIntervalTicks());
@@ -590,7 +599,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "playerOwnedHouse", "playerOwnedHouseLayout", "collectionLogPageObservations", "containers", "sailingFleet", "sailingBoatNames", "grandExchange", "appearance", "playerModel", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags", "vesselPortraitCaptures"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "playerOwnedHouse", "playerOwnedHouseLayout", "collectionLogPageObservations", "containers", "sailingFleet", "sailingBoatNames", "grandExchange", "appearance", "playerModel", "playerModelVariants", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags", "vesselPortraitCaptures"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -764,14 +773,26 @@ public class GielinorProfileSyncPlugin extends Plugin
 			return appearance;
 		}
 
-		appearance.put("gender", composition.getGender());
-		appearance.put("colors", toIntegerList(composition.getColors()));
-		appearance.put("equipmentIds", toIntegerList(composition.getEquipmentIds()));
-		appearance.put("transformedNpcId", composition.getTransformedNpcId());
+		int[] equipmentIds = composition.getEquipmentIds();
+		int[] colors = composition.getColors();
+		int gender = composition.getGender();
+		int transformedNpcId = composition.getTransformedNpcId();
+		appearance.put("gender", gender);
+		appearance.put("colors", toIntegerList(colors));
+		appearance.put("equipmentIds", toIntegerList(equipmentIds));
+		appearance.put("transformedNpcId", transformedNpcId);
+		String fingerprint = appearanceFingerprint(equipmentIds, colors, gender, transformedNpcId);
+		appearance.put("fingerprint", fingerprint);
 		Map<String, Object> model = PlayerModelSnapshot.from(player.getModel());
 		if (model != null)
 		{
+			modelVariantLibrary.observe(fingerprint, modelPoseKind(player), model);
 			appearance.put("model", model);
+			List<Map<String, Object>> modelVariants = modelVariantLibrary.variantsFor(fingerprint, model);
+			if (!modelVariants.isEmpty())
+			{
+				appearance.put("modelVariants", modelVariants);
+			}
 		}
 
 		Map<String, Object> slots = new LinkedHashMap<>();
@@ -799,6 +820,43 @@ public class GielinorProfileSyncPlugin extends Plugin
 		}
 		appearance.put("slots", slots);
 		return appearance;
+	}
+
+	private void observePlayerModel(Player player)
+	{
+		PlayerComposition composition = player.getPlayerComposition();
+		if (composition == null)
+		{
+			return;
+		}
+		Map<String, Object> model = PlayerModelSnapshot.poseFrom(player.getModel());
+		if (model == null)
+		{
+			return;
+		}
+		modelVariantLibrary.observe(
+			appearanceFingerprint(
+				composition.getEquipmentIds(),
+				composition.getColors(),
+				composition.getGender(),
+				composition.getTransformedNpcId()),
+			modelPoseKind(player),
+			model
+		);
+	}
+
+	private String appearanceFingerprint(int[] equipmentIds, int[] colors, int gender, int transformedNpcId)
+	{
+		return String.format("%08x-%08x-%d-%d", Arrays.hashCode(equipmentIds), Arrays.hashCode(colors), gender, transformedNpcId);
+	}
+
+	private String modelPoseKind(Player player)
+	{
+		if (player.getAnimation() != -1)
+		{
+			return "activity";
+		}
+		return player.getPoseAnimation() != player.getIdlePoseAnimation() ? "movement" : "idle";
 	}
 
 	private List<Integer> toIntegerList(int[] values)
@@ -1417,6 +1475,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 		bankContextUntil = 0;
 		captureInProgress = false;
 		captureActivityTracker.reset();
+		ticksSinceModelSample = 0;
+		modelVariantLibrary.reset();
 		ticksSinceAutomaticCapture = 0;
 		automaticBankCapturePending = false;
 	}
@@ -1435,6 +1495,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 		bankContextUntil = 0;
 		captureInProgress = false;
 		captureActivityTracker.reset();
+		ticksSinceModelSample = 0;
+		modelVariantLibrary.reset();
 		ticksSinceAutomaticCapture = 0;
 		automaticBankCapturePending = false;
 		ticksSinceExport = Math.max(10, config.exportIntervalTicks());

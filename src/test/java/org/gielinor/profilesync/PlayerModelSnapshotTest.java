@@ -75,4 +75,20 @@ public class PlayerModelSnapshotTest
 			null,
 			null));
 	}
+
+	@Test
+	public void encodesLightweightPoseVerticesWithoutRepeatingTopology()
+	{
+		Map<String, Object> pose = PlayerModelSnapshot.encodePose(
+			3,
+			new float[]{1.2f, -2.8f, 3.5f},
+			new float[]{4, 5, 6},
+			new float[]{7, 8, 9});
+
+		assertEquals(3, pose.get("vertexCount"));
+		assertArrayEquals(new int[]{1, -3, 4}, (int[]) pose.get("verticesX"));
+		assertFalse(pose.containsKey("faces1"));
+		assertFalse(pose.containsKey("colors1"));
+		assertNull(PlayerModelSnapshot.encodePose(3, new float[]{1}, new float[]{1, 2, 3}, new float[]{1, 2, 3}));
+	}
 }

@@ -8,6 +8,7 @@ one website or brand.
 ## What it exports
 
 - Skill levels and XP, including Sailing
+- House furniture and room layouts observed while visiting your own house in building mode
 - Hunter Rumours observed in Hunter Guild dialogue or Quetzal whistle messages
 - Collection Log pages you have opened, retained separately for each account
 - Quest states

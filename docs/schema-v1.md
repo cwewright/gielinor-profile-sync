@@ -47,6 +47,13 @@ minor plugin updates remain forwards-compatible.
   unknown. `activeBoat` is confirmed only when ownership, slot, type, and name
   signals agree; crew assignments and unobserved cargo are not inferred.
 
+- `characterCaptures`, `automaticSkillCaptures`, `coarseLocationTags`, and
+  `vesselPortraitCaptures` advertise optional local PNG/JSON bundles. Captures are
+  stored under `captures/pending` inside the plugin data directory. Automatic
+  capture and the framing guide are off by default; manual hotkeys are unset.
+  A vessel portrait requires a confirmed active owned boat. Images are bounded
+  to 4 MiB, with recent bank, skill, and vessel examples retained when pruning.
+
 ## Items
 
 `inventory`, `equipment`, and `bank` each include `loaded`, `value`,

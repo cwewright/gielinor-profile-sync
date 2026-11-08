@@ -8,6 +8,7 @@ one website or brand.
 ## What it exports
 
 - Skill levels and XP, including Sailing
+- Manual and opt-in automatic character-history scenes, including portraits of your own Sailing boats
 - Sailing boat names, fitted components, and observed cargo with freshness information
 - House furniture and room layouts observed while visiting your own house in building mode
 - Hunter Rumours observed in Hunter Guild dialogue or Quetzal whistle messages

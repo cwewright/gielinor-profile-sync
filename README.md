@@ -8,6 +8,27 @@ you play, ready for a compatible companion app of your choice.
 - Keep your last observed bank contents and Collection Log pages available between visits.
 - Privacy-minded: exports stay on your PC, and the plugin makes no network requests.
 
+## Use it with Sailor's Log
+
+[Sailor's Log](https://osrs.cwew.org/) is an optional companion website that turns
+your exports into a personal OSRS dashboard:
+
+- Plan skill goals, quests, diaries, and your next Slayer assignment.
+- Compare money-making routes and market prices, or plan meals from your banked ingredients.
+- Explore minigames, house upgrades, travel routes, and Combat Achievement preparation.
+- Browse observed Collection Log pages and follow your progress over time.
+- Inspect supported house and boat exports, with unknown details clearly marked.
+
+Install this plugin in regular RuneLite, sign in to Sailor's Log with Discord,
+then use its [Windows companion download and setup page](https://osrs.cwew.org/#/sync).
+The [step-by-step guide](https://github.com/cwewright/gielinor-profile-sync/wiki/Getting-started)
+explains where to copy your Profile ID, create a device upload key, and connect your PC.
+See the [website feature guide](https://github.com/cwewright/gielinor-profile-sync/wiki/Website-features)
+for details and features still in preview.
+
+The companion uploads only when you connect it. The RuneLite plugin remains a
+local exporter and does not require a website account.
+
 ## What it exports
 
 - Skill levels and XP, including Sailing

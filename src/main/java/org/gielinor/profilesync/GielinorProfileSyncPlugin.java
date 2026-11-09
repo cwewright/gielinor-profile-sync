@@ -72,7 +72,7 @@ import net.runelite.client.util.Text;
 	name = "Gielinor Profile Sync",
 	legacyDataDirectory = "gielinor-profile-sync",
 	internalName = "gielinor-profile-sync",
-	description = "Exports a privacy-minded local profile for personal dashboards and progression tools.",
+	description = "Export your character's progress, gear, and bank for personal dashboards and planning tools.",
 	tags = {"profile", "export", "json", "progress", "avatar"}
 )
 public class GielinorProfileSyncPlugin extends Plugin

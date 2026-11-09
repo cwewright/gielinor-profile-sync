@@ -70,6 +70,7 @@ in-game companion features are still in preview.
 ### What it exports
 
 - Skill levels and XP, including Sailing
+- A small selection of distinct character poses for compatible avatar displays
 - A sidebar checklist for a Construction or Cooking plan saved by your companion app
 - Manual and opt-in automatic character-history scenes, including portraits of your own Sailing boats
 - Sailing boat names, fitted components, and observed cargo with freshness information

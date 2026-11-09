@@ -1,13 +1,17 @@
 # Gielinor Profile Sync
 
-Gielinor Profile Sync is a privacy-minded RuneLite plugin that writes a
-versioned account snapshot to your local `.runelite` directory. It is designed
-for personal dashboards and progression tools without tying the data format to
-one website or brand.
+Export your character's progress, gear, and bank for personal dashboards and
+planning tools. Gielinor Profile Sync keeps an account snapshot up to date as
+you play, ready for a compatible companion app of your choice.
+
+- Track skills, quests, diaries, Slayer assignments, and Hunter Rumours.
+- Keep your last observed bank contents and Collection Log pages available between visits.
+- Privacy-minded: exports stay on your PC, and the plugin makes no network requests.
 
 ## What it exports
 
 - Skill levels and XP, including Sailing
+- House furniture and room layouts observed while visiting your own house in building mode
 - Hunter Rumours observed in Hunter Guild dialogue or Quetzal whistle messages
 - Collection Log pages you have opened, retained separately for each account
 - Quest states

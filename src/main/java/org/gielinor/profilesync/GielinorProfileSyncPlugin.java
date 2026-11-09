@@ -19,17 +19,28 @@ import net.runelite.api.GameState;
 import net.runelite.api.GrandExchangeOffer;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
+import net.runelite.api.ObjectComposition;
 import net.runelite.api.Player;
 import net.runelite.api.PlayerComposition;
 import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
 import net.runelite.api.ScriptID;
 import net.runelite.api.Skill;
+import net.runelite.api.TileObject;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ChatMessage;
+import net.runelite.api.events.DecorativeObjectDespawned;
+import net.runelite.api.events.DecorativeObjectSpawned;
+import net.runelite.api.events.GameObjectDespawned;
+import net.runelite.api.events.GameObjectSpawned;
+import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.GroundObjectDespawned;
+import net.runelite.api.events.GroundObjectSpawned;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.ScriptPostFired;
+import net.runelite.api.events.WallObjectDespawned;
+import net.runelite.api.events.WallObjectSpawned;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarPlayerID;
@@ -49,13 +60,13 @@ import net.runelite.client.util.Text;
 	name = "Gielinor Profile Sync",
 	legacyDataDirectory = "gielinor-profile-sync",
 	internalName = "gielinor-profile-sync",
-	description = "Exports a privacy-minded local profile for personal dashboards and progression tools.",
+	description = "Export your character's progress, gear, and bank for personal dashboards and planning tools.",
 	tags = {"profile", "export", "json", "progress", "avatar"}
 )
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.4";
+	private static final String PLUGIN_VERSION = "0.1.5";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int COLLECTION_LOG_ENTRY_TITLE_INDEX = 0;
@@ -75,6 +86,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	@Inject
 	private ClientThread clientThread;
 
+	private final PohSnapshotTracker pohSnapshots = new PohSnapshotTracker();
 	private final HunterRumourSnapshot hunterRumours = new HunterRumourSnapshot();
 	private final CollectionLogAccountSnapshots collectionLogSnapshots = new CollectionLogAccountSnapshots();
 
@@ -128,6 +140,73 @@ public class GielinorProfileSyncPlugin extends Plugin
 		}
 		resetSession();
 		log.info("Gielinor Profile Sync stopped.");
+	}
+
+	@Subscribe
+	public void onGameStateChanged(GameStateChanged event)
+	{
+		if (event.getGameState() == GameState.LOADING || event.getGameState() == GameState.LOGIN_SCREEN)
+		{
+			pohSnapshots.clearScene();
+		}
+	}
+
+	@Subscribe
+	public void onGameObjectSpawned(GameObjectSpawned event)
+	{
+		observePohObject(event.getGameObject());
+	}
+
+	@Subscribe
+	public void onGameObjectDespawned(GameObjectDespawned event)
+	{
+		pohSnapshots.forget(event.getGameObject());
+	}
+
+	@Subscribe
+	public void onDecorativeObjectSpawned(DecorativeObjectSpawned event)
+	{
+		observePohObject(event.getDecorativeObject());
+	}
+
+	@Subscribe
+	public void onDecorativeObjectDespawned(DecorativeObjectDespawned event)
+	{
+		pohSnapshots.forget(event.getDecorativeObject());
+	}
+
+	@Subscribe
+	public void onWallObjectSpawned(WallObjectSpawned event)
+	{
+		observePohObject(event.getWallObject());
+	}
+
+	@Subscribe
+	public void onWallObjectDespawned(WallObjectDespawned event)
+	{
+		pohSnapshots.forget(event.getWallObject());
+	}
+
+	@Subscribe
+	public void onGroundObjectSpawned(GroundObjectSpawned event)
+	{
+		observePohObject(event.getGroundObject());
+	}
+
+	@Subscribe
+	public void onGroundObjectDespawned(GroundObjectDespawned event)
+	{
+		pohSnapshots.forget(event.getGroundObject());
+	}
+
+	private void observePohObject(TileObject object)
+	{
+		if (object == null)
+		{
+			return;
+		}
+		ObjectComposition composition = client.getObjectDefinition(object.getId());
+		pohSnapshots.observe(object, composition);
 	}
 
 	@Subscribe
@@ -286,7 +365,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "collectionLogPageObservations", "containers", "grandExchange", "appearance", "playerModel"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "playerOwnedHouse", "playerOwnedHouseLayout", "collectionLogPageObservations", "containers", "grandExchange", "appearance", "playerModel"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -323,7 +402,16 @@ public class GielinorProfileSyncPlugin extends Plugin
 		if (rsn.equals(previousSnapshot.get("rsn")))
 		{
 			hunterRumours.restore(previousSnapshot.get("hunterRumours"));
+			pohSnapshots.restore(previousSnapshot.get("playerOwnedHouse"));
 		}
+		snapshot.put("playerOwnedHouse", pohSnapshots.snapshot(
+			now,
+			client.getVarbitValue(VarbitID.POH_BUILDING_MODE) > 0,
+			client.getVarbitValue(VarbitID.POH_HOUSE_LOCATION),
+			client.getVarbitValue(VarbitID.POH_HOUSE_STYLE),
+			client.getVarbitValue(VarbitID.POH_HOUSE_SIZE),
+			client.isInInstancedRegion() ? client.getInstanceTemplateChunks() : null
+		));
 		snapshot.put("hunterRumours", hunterRumours.snapshot());
 		snapshot.put("slayer", SlayerTaskSnapshot.build(client, now));
 		snapshot.put("collectionLog", collectionLogSnapshots.current().toMap());
@@ -700,6 +788,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		lastRsn = "";
 		collectionLogSnapshots.deactivate();
 		hunterRumours.resetAccount();
+		pohSnapshots.resetAccount();
 		lastGoodBank = null;
 		lastGoodInventory = null;
 		lastGoodEquipment = null;
@@ -708,6 +797,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private void resetAccount(String rsn)
 	{
 		hunterRumours.resetAccount();
+		pohSnapshots.resetAccount();
 		lastRsn = rsn;
 		collectionLogSnapshots.activate(rsn);
 		lastGoodBank = null;

@@ -37,6 +37,11 @@ minor plugin updates remain forwards-compatible.
   masters and completion totals remain unknown. Restored observations are marked
   `fromCache`. Raw chat and exact player coordinates are not exported.
 
+- `playerOwnedHouse`: retained observations of furniture and room layouts, captured
+  only with building mode active and the house exit portal observed. Room positions
+  are relative to that portal, not world coordinates. A retained inspection has
+  `fromCache: true`; unvisited or unobserved furniture is not inferred.
+
 ## Items
 
 `inventory`, `equipment`, and `bank` each include `loaded`, `value`,

@@ -2,6 +2,8 @@ package org.gielinor.profilesync;
 
 import com.google.gson.Gson;
 import com.google.inject.Provides;
+import java.awt.Rectangle;
+import java.awt.Shape;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -10,10 +12,12 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.GrandExchangeOffer;
@@ -39,8 +43,11 @@ import net.runelite.api.events.GroundObjectDespawned;
 import net.runelite.api.events.GroundObjectSpawned;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.ScriptPostFired;
+import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.WallObjectDespawned;
 import net.runelite.api.events.WallObjectSpawned;
+import net.runelite.api.events.WidgetClosed;
+import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarPlayerID;
@@ -51,8 +58,13 @@ import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.input.KeyManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.DrawManager;
+import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.util.Filepath;
+import net.runelite.client.util.HotkeyListener;
 import net.runelite.client.util.Text;
 
 @Slf4j
@@ -66,7 +78,7 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.6";
+	private static final String PLUGIN_VERSION = "0.1.7";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int COLLECTION_LOG_ENTRY_TITLE_INDEX = 0;
@@ -98,6 +110,18 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private final HunterRumourSnapshot hunterRumours = new HunterRumourSnapshot();
 	private final CollectionLogAccountSnapshots collectionLogSnapshots = new CollectionLogAccountSnapshots();
 
+	@Inject
+	private DrawManager drawManager;
+
+	@Inject
+	private KeyManager keyManager;
+
+	@Inject
+	private OverlayManager overlayManager;
+
+	@Inject
+	private CharacterCaptureOverlay characterCaptureOverlay;
+
 	private ExecutorService fileExecutor;
 	private ProfileExportStore exportStore;
 	private volatile Map<String, Object> previousSnapshot = Collections.emptyMap();
@@ -108,6 +132,32 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private CachedContainer lastGoodInventory;
 	private CachedContainer lastGoodEquipment;
 	private final CachedContainer[] lastGoodSailingCargo = new CachedContainer[SAILING_CARGO_INVENTORIES.length];
+
+	private volatile boolean captureInProgress;
+	private boolean bankInterfaceOpen;
+	private long bankContextUntil;
+	private final CaptureActivityTracker captureActivityTracker = new CaptureActivityTracker();
+	private int ticksSinceAutomaticCapture;
+	private boolean automaticBankCapturePending;
+	private volatile int knownBankCaptureCount = -1;
+
+	private final HotkeyListener captureHotkeyListener = new HotkeyListener(() -> config.captureHotkey())
+	{
+		@Override
+		public void hotkeyPressed()
+		{
+			clientThread.invokeLater(() -> requestCharacterCapture("manual"));
+		}
+	};
+
+	private final HotkeyListener captureVesselHotkeyListener = new HotkeyListener(() -> config.captureVesselHotkey())
+	{
+		@Override
+		public void hotkeyPressed()
+		{
+			clientThread.invokeLater(() -> requestVesselCapture());
+		}
+	};
 
 	@Provides
 	GielinorProfileSyncConfig provideConfig(ConfigManager configManager)
@@ -136,12 +186,31 @@ public class GielinorProfileSyncPlugin extends Plugin
 				log.warn("Could not initialize the local profile directory.", e);
 			}
 		});
+		fileExecutor.execute(() ->
+		{
+			try
+			{
+				knownBankCaptureCount = CaptureBundle.countSceneTag(getCaptureRootDirectory(), "bank", gson);
+			}
+			catch (IOException e)
+			{
+				knownBankCaptureCount = 0;
+				log.debug("Could not inspect existing character capture tags.", e);
+			}
+		});
+		keyManager.registerKeyListener(captureHotkeyListener);
+		keyManager.registerKeyListener(captureVesselHotkeyListener);
+		overlayManager.add(characterCaptureOverlay);
 		log.info("Gielinor Profile Sync started.");
 	}
 
 	@Override
 	protected void shutDown()
 	{
+		keyManager.unregisterKeyListener(captureHotkeyListener);
+		keyManager.unregisterKeyListener(captureVesselHotkeyListener);
+		overlayManager.remove(characterCaptureOverlay);
+		captureInProgress = false;
 		if (fileExecutor != null)
 		{
 			fileExecutor.shutdownNow();
@@ -303,6 +372,39 @@ public class GielinorProfileSyncPlugin extends Plugin
 	}
 
 	@Subscribe
+	public void onWidgetLoaded(WidgetLoaded event)
+	{
+		if (isBankInterface(event.getGroupId()))
+		{
+			bankInterfaceOpen = true;
+			refreshBankContextWindow();
+		}
+	}
+
+	@Subscribe
+	public void onWidgetClosed(WidgetClosed event)
+	{
+		if (isBankInterface(event.getGroupId()))
+		{
+			bankInterfaceOpen = false;
+			refreshBankContextWindow();
+			if (config.automaticCaptures() && knownBankCaptureCount >= 0 && knownBankCaptureCount < 2)
+			{
+				automaticBankCapturePending = true;
+			}
+		}
+	}
+
+	@Subscribe
+	public void onStatChanged(StatChanged event)
+	{
+		if (client.getGameState() == GameState.LOGGED_IN)
+		{
+			captureActivityTracker.observe(event.getSkill(), event.getXp(), System.currentTimeMillis());
+		}
+	}
+
+	@Subscribe
 	public void onChatMessage(ChatMessage event)
 	{
 		Player player = client.getLocalPlayer();
@@ -350,10 +452,21 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 		ticksLoggedIn++;
 		ticksSinceExport++;
+		if (config.automaticCaptures())
+		{
+			ticksSinceAutomaticCapture++;
+		}
+		else
+		{
+			ticksSinceAutomaticCapture = 0;
+			automaticBankCapturePending = false;
+		}
 		if (ticksLoggedIn < LOGIN_SETTLE_TICKS)
 		{
 			return;
 		}
+
+		requestAutomaticCaptureIfDue();
 
 		int interval = Math.max(10, config.exportIntervalTicks());
 		if (ticksSinceExport < interval)
@@ -374,7 +487,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "playerOwnedHouse", "playerOwnedHouseLayout", "collectionLogPageObservations", "containers", "sailingFleet", "sailingBoatNames", "grandExchange", "appearance", "playerModel"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "playerOwnedHouse", "playerOwnedHouseLayout", "collectionLogPageObservations", "containers", "sailingFleet", "sailingBoatNames", "grandExchange", "appearance", "playerModel", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags", "vesselPortraitCaptures"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -593,6 +706,311 @@ public class GielinorProfileSyncPlugin extends Plugin
 			output.add(value);
 		}
 		return output;
+	}
+
+	private void requestCharacterCapture(String trigger)
+	{
+		requestCharacterCapture(trigger, null);
+	}
+
+	private void requestCharacterCapture(String trigger, Map<String, Object> vesselContext)
+	{
+		Player localPlayer = client.getLocalPlayer();
+		if (client.getGameState() != GameState.LOGGED_IN || localPlayer == null || captureInProgress)
+		{
+			return;
+		}
+
+		if (bankInterfaceOpen)
+		{
+			client.addChatMessage(
+				ChatMessageType.GAMEMESSAGE,
+				"",
+				"Close the bank before capturing so no bank contents appear in the scene.",
+				null
+			);
+			return;
+		}
+
+		if (client.isMenuOpen())
+		{
+			client.addChatMessage(
+				ChatMessageType.GAMEMESSAGE,
+				"",
+				"Close the right-click menu before capturing the scene.",
+				null
+			);
+			return;
+		}
+
+		ExecutorService executor = fileExecutor;
+		if (executor == null)
+		{
+			return;
+		}
+
+		String captureId = UUID.randomUUID().toString();
+		int logicalCanvasWidth = Math.max(1, client.getCanvasWidth());
+		int logicalCanvasHeight = Math.max(1, client.getCanvasHeight());
+		Rectangle logicalCaptureCrop = getCaptureCrop(logicalCanvasWidth, logicalCanvasHeight);
+		Shape playerHull = localPlayer.getConvexHull();
+		Rectangle logicalPlayerBounds = playerHull == null ? null : playerHull.getBounds();
+		Map<String, Object> metadata = buildCaptureMetadata(captureId, trigger, localPlayer, vesselContext);
+		int retention = Math.max(30, Math.min(500, config.captureRetention()));
+		captureInProgress = true;
+
+		drawManager.requestNextFrameListener(image ->
+		{
+			captureInProgress = false;
+			Rectangle imageCaptureCrop;
+			try
+			{
+				imageCaptureCrop = CaptureBundle.prepareFrameMetadata(
+					metadata,
+					logicalCaptureCrop,
+					logicalPlayerBounds,
+					logicalCanvasWidth,
+					logicalCanvasHeight,
+					image.getWidth(null),
+					image.getHeight(null)
+				);
+			}
+			catch (IllegalArgumentException e)
+			{
+				log.warn("Could not prepare Gielinor character history capture {}.", captureId, e);
+				clientThread.invokeLater(() -> client.addChatMessage(
+					ChatMessageType.GAMEMESSAGE,
+					"",
+					"Gielinor Profile Sync could not prepare that scene; check the RuneLite log.",
+					null
+				));
+				return;
+			}
+			executor.execute(() ->
+			{
+				try
+				{
+					CaptureBundle.write(getCapturePendingDirectory(), captureId, image, imageCaptureCrop, metadata, gson);
+					CaptureBundle.pruneDiverse(getCapturePendingDirectory(), retention, gson);
+					Object rawContext = metadata.get("context");
+					if (rawContext instanceof Map && "bank".equals(((Map<?, ?>) rawContext).get("sceneTag")))
+					{
+						knownBankCaptureCount = Math.max(0, knownBankCaptureCount) + 1;
+					}
+					log.debug("Gielinor character history capture {} saved locally.", captureId);
+					clientThread.invokeLater(() -> client.addChatMessage(
+						ChatMessageType.GAMEMESSAGE,
+						"",
+						"Gielinor history scene saved locally.",
+						null
+					));
+				}
+				catch (IOException | RuntimeException e)
+				{
+					log.warn("Could not save Gielinor character history capture {}.", captureId, e);
+					clientThread.invokeLater(() -> client.addChatMessage(
+						ChatMessageType.GAMEMESSAGE,
+						"",
+						"Gielinor Profile Sync could not save that scene; check the RuneLite log.",
+						null
+					));
+				}
+			});
+		});
+	}
+
+	@SuppressWarnings("unchecked")
+	private void requestVesselCapture()
+	{
+		Map<String, Object> fleet = SailingFleetSnapshot.build(
+			System.currentTimeMillis(),
+			client::getVarbitValue,
+			ignored -> null,
+			SailingFleetDecoder.forClient(client)
+		);
+		Object rawActive = fleet.get("activeBoat");
+		if (!(rawActive instanceof Map) || !"confirmed".equals(((Map<String, Object>) rawActive).get("status")))
+		{
+			client.addChatMessage(
+				ChatMessageType.GAMEMESSAGE,
+				"",
+				"Board your own vessel before capturing it; no fleet slot could be safely confirmed.",
+				null
+			);
+			return;
+		}
+
+		Map<String, Object> active = (Map<String, Object>) rawActive;
+		Map<String, Object> vessel = new LinkedHashMap<>();
+		vessel.put("correlationStatus", "confirmed");
+		vessel.put("boatId", active.get("id"));
+		vessel.put("boatSlot", active.get("slot"));
+		vessel.put("typeId", active.get("typeId"));
+		copyDecodedLabel(active.get("decodedType"), vessel, "typeName");
+		copyDecodedLabel(active.get("decodedName"), vessel, "boatName");
+		vessel.put("correlation", active.get("correlation"));
+		requestCharacterCapture("manual", vessel);
+	}
+
+	@SuppressWarnings("unchecked")
+	private void copyDecodedLabel(Object rawDecoded, Map<String, Object> target, String key)
+	{
+		if (!(rawDecoded instanceof Map))
+		{
+			return;
+		}
+		Map<String, Object> decoded = (Map<String, Object>) rawDecoded;
+		if ("resolved".equals(decoded.get("status")) && decoded.get("name") instanceof String)
+		{
+			target.put(key, decoded.get("name"));
+		}
+	}
+
+	private Map<String, Object> buildCaptureMetadata(
+		String captureId,
+		String trigger,
+		Player localPlayer,
+		Map<String, Object> vesselContext
+	)
+	{
+		Map<String, Object> metadata = new LinkedHashMap<>();
+		metadata.put("schemaVersion", 1);
+		metadata.put("captureId", captureId);
+		metadata.put("capturedAt", Instant.now().toString());
+
+		Map<String, Object> source = new LinkedHashMap<>();
+		source.put("plugin", CONFIG_GROUP);
+		source.put("pluginVersion", PLUGIN_VERSION);
+		source.put("profileSchemaVersion", SCHEMA_VERSION);
+		source.put("captureMode", "local-only");
+		metadata.put("source", source);
+
+		boolean vesselCapture = vesselContext != null;
+		boolean bankContext = !vesselCapture && System.currentTimeMillis() <= bankContextUntil;
+		int skillWindowMinutes = Math.max(1, Math.min(30, config.skillContextMinutes()));
+		String skillTag = captureActivityTracker.recentSkillTag(
+			System.currentTimeMillis(),
+			skillWindowMinutes * 60_000L
+		);
+		Map<String, Object> context = new LinkedHashMap<>();
+		context.put("trigger", trigger);
+		context.put("sceneTag", vesselCapture ? "vessel" : bankContext ? "bank" : "adventure");
+		context.put("bankContext", bankContext);
+		context.put("classification", vesselCapture ? "confirmed-active-owned-vessel" : bankContext ? "recent-bank-interface" : skillTag == null ? "unclassified" : "recent-skill-activity");
+		if (vesselCapture)
+		{
+			context.put("skillTag", "Sailing");
+			context.put("fleet", vesselContext);
+		}
+		else if (skillTag != null)
+		{
+			context.put("skillTag", skillTag);
+		}
+		String locationTag = CaptureActivityTracker.coarseLocationTag(localPlayer.getWorldLocation());
+		if (locationTag != null)
+		{
+			context.put("locationTag", locationTag);
+		}
+		metadata.put("context", context);
+
+		Map<String, Object> camera = new LinkedHashMap<>();
+		camera.put("yaw", client.getCameraYaw());
+		camera.put("pitch", client.getCameraPitch());
+		camera.put("scale", client.getScale());
+		metadata.put("camera", camera);
+
+		Map<String, Object> character = new LinkedHashMap<>();
+		character.put("animation", localPlayer.getAnimation());
+		character.put("animationFrame", localPlayer.getAnimationFrame());
+		character.put("poseAnimation", localPlayer.getPoseAnimation());
+		character.put("poseAnimationFrame", localPlayer.getPoseAnimationFrame());
+		character.put("idlePoseAnimation", localPlayer.getIdlePoseAnimation());
+		character.put("orientation", localPlayer.getOrientation());
+		character.put("currentOrientation", localPlayer.getCurrentOrientation());
+		metadata.put("character", character);
+		metadata.put("appearance", buildAppearance(localPlayer));
+
+		Map<String, Object> privacy = new LinkedHashMap<>();
+		privacy.put("imageScope", "central-world-scene");
+		privacy.put("standardGameUiExcluded", true);
+		privacy.put("structuredExactLocationIncluded", false);
+		privacy.put("structuredCoarseRegionIncluded", locationTag != null);
+		privacy.put("structuredWorldNumberIncluded", false);
+		privacy.put("structuredNearbyPlayerNamesIncluded", false);
+		privacy.put("structuredChatIncluded", false);
+		metadata.put("privacy", privacy);
+		return metadata;
+	}
+
+	Rectangle getCaptureCrop()
+	{
+		return getCaptureCrop(client.getCanvasWidth(), client.getCanvasHeight());
+	}
+
+	private Rectangle getCaptureCrop(int canvasWidth, int canvasHeight)
+	{
+		return CaptureBundle.buildSafeCaptureCrop(
+			client.getViewportXOffset(),
+			client.getViewportYOffset(),
+			client.getViewportWidth(),
+			client.getViewportHeight(),
+			canvasWidth,
+			canvasHeight,
+			client.isResized()
+		);
+	}
+
+	boolean isCaptureInProgress()
+	{
+		return captureInProgress;
+	}
+
+	private Filepath getCapturePendingDirectory() throws IOException
+	{
+		return getCaptureRootDirectory().join("pending");
+	}
+
+	private Filepath getCaptureRootDirectory() throws IOException
+	{
+		return getPluginDirectory().join("captures");
+	}
+
+	private void requestAutomaticCaptureIfDue()
+	{
+		if (!config.automaticCaptures() || captureInProgress || bankInterfaceOpen || client.isMenuOpen())
+		{
+			return;
+		}
+		if (automaticBankCapturePending)
+		{
+			automaticBankCapturePending = false;
+			requestCharacterCapture("scheduled");
+			return;
+		}
+
+		int minutes = Math.max(15, Math.min(240, config.automaticCaptureMinutes()));
+		if (ticksSinceAutomaticCapture < minutes * 100)
+		{
+			return;
+		}
+		int skillWindowMinutes = Math.max(1, Math.min(30, config.skillContextMinutes()));
+		if (captureActivityTracker.recentSkillTag(System.currentTimeMillis(), skillWindowMinutes * 60_000L) == null)
+		{
+			return;
+		}
+		ticksSinceAutomaticCapture = 0;
+		requestCharacterCapture("scheduled");
+	}
+
+	private void refreshBankContextWindow()
+	{
+		int seconds = Math.max(5, Math.min(300, config.recentBankSeconds()));
+		bankContextUntil = System.currentTimeMillis() + seconds * 1000L;
+	}
+
+	private boolean isBankInterface(int groupId)
+	{
+		return groupId == InterfaceID.BANKMAIN || groupId == InterfaceID.BANK_DEPOSITBOX;
 	}
 
 	private Map<String, Object> buildContainer(int inventoryId)
@@ -892,6 +1310,12 @@ public class GielinorProfileSyncPlugin extends Plugin
 		lastGoodInventory = null;
 		lastGoodEquipment = null;
 		Arrays.fill(lastGoodSailingCargo, null);
+		bankInterfaceOpen = false;
+		bankContextUntil = 0;
+		captureInProgress = false;
+		captureActivityTracker.reset();
+		ticksSinceAutomaticCapture = 0;
+		automaticBankCapturePending = false;
 	}
 
 	private void resetAccount(String rsn)
@@ -904,6 +1328,12 @@ public class GielinorProfileSyncPlugin extends Plugin
 		lastGoodInventory = null;
 		lastGoodEquipment = null;
 		Arrays.fill(lastGoodSailingCargo, null);
+		bankInterfaceOpen = false;
+		bankContextUntil = 0;
+		captureInProgress = false;
+		captureActivityTracker.reset();
+		ticksSinceAutomaticCapture = 0;
+		automaticBankCapturePending = false;
 		ticksSinceExport = Math.max(10, config.exportIntervalTicks());
 	}
 

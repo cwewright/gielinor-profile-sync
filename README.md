@@ -58,6 +58,15 @@ These screenshots show the optional companion website. Visit the
 for quests, minigames, Construction, fleet planning, and more, including which
 in-game companion features are still in preview.
 
+## Keep your next goal beside the game
+
+With a compatible Sailor's Log companion, the sidebar brings in two suggested
+quests and ideas for your lowest skill. Your observed Slayer and Hunter
+assignments appear alongside them. Choose **Make this my focus** to expand a
+card's next steps and Wiki guide while keeping the other suggestions compact.
+Slayer counts and skill XP update locally; your published Cooking or
+Construction supply checklist stays available below.
+
 ## Your data, your choice
 
 - Privacy-minded: the RuneLite plugin makes no network requests. Exports stay on your PC.

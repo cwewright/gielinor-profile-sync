@@ -149,7 +149,7 @@ final class RunelitePlanStore
 			items);
 	}
 
-	private static String text(JsonObject object, String field, int maximumLength)
+	static String text(JsonObject object, String field, int maximumLength)
 	{
 		JsonElement element = object.get(field);
 		if (element == null || !element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString())
@@ -164,12 +164,12 @@ final class RunelitePlanStore
 		return value;
 	}
 
-	private static String optionalText(JsonObject object, String field, int maximumLength)
+	static String optionalText(JsonObject object, String field, int maximumLength)
 	{
 		return object.has(field) && !object.get(field).isJsonNull() ? text(object, field, maximumLength) : null;
 	}
 
-	private static int wholeNumber(JsonObject object, String field, int maximum)
+	static int wholeNumber(JsonObject object, String field, int maximum)
 	{
 		JsonElement element = object.get(field);
 		if (element == null || !element.isJsonPrimitive())
@@ -215,7 +215,7 @@ final class RunelitePlanStore
 		return element.getAsBoolean();
 	}
 
-	private static Instant timestamp(JsonObject object, String field)
+	static Instant timestamp(JsonObject object, String field)
 	{
 		try
 		{

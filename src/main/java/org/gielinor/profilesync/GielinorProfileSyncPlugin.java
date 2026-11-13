@@ -90,7 +90,7 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.9";
+	private static final String PLUGIN_VERSION = "0.1.10";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int MODEL_SAMPLE_INTERVAL_TICKS = 10;
@@ -139,7 +139,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 	@Inject
 	private ClientToolbar clientToolbar;
 
-	private volatile RunelitePlanPanel runelitePlanPanel;
+	private volatile RuneliteOrdersPanel runelitePlanPanel;
+	private RuneliteOrders activeOrders;
 	private NavigationButton runelitePlanNavigation;
 	private final AtomicBoolean planRefreshQueued = new AtomicBoolean();
 	private int ticksSincePlanRefresh;
@@ -195,9 +196,9 @@ public class GielinorProfileSyncPlugin extends Plugin
 	protected void startUp()
 	{
 		exportStore = null;
-		runelitePlanPanel = new RunelitePlanPanel();
+		runelitePlanPanel = new RuneliteOrdersPanel();
 		runelitePlanNavigation = NavigationButton.builder()
-			.tooltip("Sailor's Log plan")
+			.tooltip("Sailor's Log · Captain's Orders")
 			.icon(createPlanIcon())
 			.priority(7)
 			.panel(runelitePlanPanel)
@@ -253,6 +254,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		}
 		runelitePlanPanel = null;
 		activePlan = null;
+		activeOrders = null;
 		planInventoryDirty = true;
 		planRefreshQueued.set(false);
 		captureInProgress = false;
@@ -268,6 +270,10 @@ public class GielinorProfileSyncPlugin extends Plugin
 	@Subscribe
 	public void onGameStateChanged(GameStateChanged event)
 	{
+		if (event.getGameState() == GameState.LOGIN_SCREEN && runelitePlanPanel != null)
+		{
+			runelitePlanPanel.resetSession();
+		}
 		if (event.getGameState() == GameState.LOADING || event.getGameState() == GameState.LOGIN_SCREEN)
 		{
 			pohSnapshots.clearScene();
@@ -529,6 +535,13 @@ public class GielinorProfileSyncPlugin extends Plugin
 			observePlayerModel(player);
 		}
 		observePlanInventory();
+		if (ticksLoggedIn % 10 == 0 && runelitePlanPanel != null)
+		{
+			RuneliteOrdersPanel panel = runelitePlanPanel;
+			RuneliteOrders orders = activeOrders != null && activeOrders.belongsTo(rsn)
+				&& activeOrders.expiresAt.isAfter(Instant.now()) ? activeOrders : null;
+			panel.showOrders(RuneliteOrdersLive.cards(client, hunterRumours.snapshot(), orders, rsn), orders, true);
+		}
 		requestAutomaticCaptureIfDue();
 
 		int interval = Math.max(10, config.exportIntervalTicks());
@@ -544,7 +557,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private void requestPlanRefresh()
 	{
 		ExecutorService executor = fileExecutor;
-		RunelitePlanPanel panel = runelitePlanPanel;
+		RuneliteOrdersPanel panel = runelitePlanPanel;
 		if (executor == null || panel == null || !planRefreshQueued.compareAndSet(false, true))
 		{
 			return;
@@ -556,6 +569,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 				try
 				{
 					RunelitePlan plan = new RunelitePlanStore(getPluginDirectory()).read();
+					RuneliteOrders orders = RuneliteOrders.read(getPluginDirectory(), java.time.Clock.systemUTC());
 					clientThread.invokeLater(() ->
 					{
 						if (runelitePlanPanel == panel)
@@ -565,6 +579,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 								planInventoryDirty = true;
 							}
 							activePlan = plan;
+							activeOrders = orders;
 							panel.showPlan(plan);
 						}
 					});
@@ -587,7 +602,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	private void observePlanInventory()
 	{
-		RunelitePlanPanel panel = runelitePlanPanel;
+		RuneliteOrdersPanel panel = runelitePlanPanel;
 		if (!planInventoryDirty || activePlan == null || panel == null)
 		{
 			return;
@@ -1533,7 +1548,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private void resetAccount(String rsn)
 	{
 		planInventoryDirty = true;
-		RunelitePlanPanel panel = runelitePlanPanel;
+		RuneliteOrdersPanel panel = runelitePlanPanel;
 		if (panel != null)
 		{
 			SwingUtilities.invokeLater(panel::resetSession);

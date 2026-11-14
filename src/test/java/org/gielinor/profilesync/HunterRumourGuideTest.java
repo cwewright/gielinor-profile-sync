@@ -22,6 +22,16 @@ public class HunterRumourGuideTest
 		for (HunterRumourGuide.Creature creature : guide.creatures)
 		{
 			assertFalse(creature.name, creature.locations.isEmpty());
+			for (String location : creature.locations)
+			{
+				assertFalse(location, guide.routes(location).isEmpty());
+				for (HunterRumourGuide.TravelOption route : guide.routes(location))
+				{
+					assertNotNull(route.label);
+					assertNotNull(route.notes);
+					assertNotNull(route.requirements);
+				}
+			}
 			assertFalse(creature.name, guide.equipment(creature).required.isEmpty());
 			assertNotNull(creature.name, guide.image(creature));
 			assertTrue(guide.image(creature).getWidth() <= 96);
@@ -50,6 +60,8 @@ public class HunterRumourGuideTest
 			assertTrue(tabs.getComponentAt(1) instanceof HunterRumourPanel);
 			assertTrue(labels((Container) tabs.getComponentAt(1)).contains("Sabre-toothed kyatt"));
 			assertTrue(labels((Container) tabs.getComponentAt(1)).contains("Rellekka Hunter area"));
+			assertTrue(labels((Container) tabs.getComponentAt(1)).contains("Fairy ring DKS"));
+			assertTrue(labels((Container) tabs.getComponentAt(1)).contains("Requires:"));
 			assertFalse(labels((Container) tabs.getComponentAt(0)).contains("Sabre-toothed kyatt"));
 			panel.resetSession();
 			assertFalse(labels((Container) tabs.getComponentAt(1)).contains("Sabre-toothed kyatt"));

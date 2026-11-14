@@ -7,6 +7,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -17,6 +18,7 @@ final class HunterRumourGuide
 {
 	String verifiedAt;
 	Map<String, Equipment> methods;
+	Map<String, List<TravelOption>> travel;
 	List<Creature> creatures;
 	private final transient Map<String, Creature> byName = new HashMap<>();
 	private final transient Map<String, BufferedImage> images = new HashMap<>();
@@ -43,6 +45,14 @@ final class HunterRumourGuide
 	Creature find(String name) { return byName.get(name.toLowerCase(Locale.ROOT)); }
 	BufferedImage image(Creature creature) { return images.get(creature.slug); }
 	Equipment equipment(Creature creature) { return creature.equipmentOverride == null ? methods.get(creature.method) : creature.equipmentOverride; }
+	List<TravelOption> routes(String location) { return travel == null ? Collections.emptyList() : travel.getOrDefault(location, Collections.emptyList()); }
+
+	static final class TravelOption
+	{
+		String label;
+		String notes;
+		String requirements;
+	}
 
 	static final class Creature
 	{

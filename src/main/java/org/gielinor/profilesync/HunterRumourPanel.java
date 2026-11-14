@@ -50,7 +50,14 @@ final class HunterRumourPanel extends JPanel
 				for (String location : creature.locations)
 				{
 					add(RuneliteOrdersPanel.copy(location, Color.LIGHT_GRAY));
+					for (HunterRumourGuide.TravelOption route : guide.routes(location))
+					{
+						add(RuneliteOrdersPanel.copy(route.label, Color.WHITE));
+						add(RuneliteOrdersPanel.copy(route.notes, Color.LIGHT_GRAY));
+						add(RuneliteOrdersPanel.copy("Requires: " + route.requirements, Color.LIGHT_GRAY));
+					}
 				}
+				add(RuneliteOrdersPanel.copy("Choose a travel route you have unlocked.", Color.LIGHT_GRAY));
 				add(RuneliteOrdersPanel.copy("WHAT TO BRING", ColorScheme.BRAND_ORANGE));
 				HunterRumourGuide.Equipment gear = guide.equipment(creature);
 				for (String item : gear.required) { add(RuneliteOrdersPanel.copy("• " + item, Color.WHITE)); }

@@ -88,6 +88,7 @@ Construction supply checklist stays available below.
 - Collection Log pages you have opened, retained separately for each account
 - Quest states
 - Achievement Diary task counts, tier completion, and separately claimed rewards
+- Named diary task completion, captured automatically when you open each region's diary journal and retained for that character after it closes
 - Current Slayer assignment, remaining count, assigned area, points, and task streak
 - Bank, inventory, and equipment snapshots with freshness metadata
 - Grand Exchange offers and RuneLite price estimates

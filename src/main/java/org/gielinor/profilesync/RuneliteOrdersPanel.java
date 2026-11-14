@@ -12,6 +12,7 @@ import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.PluginPanel;
@@ -22,6 +23,8 @@ final class RuneliteOrdersPanel extends PluginPanel
 	private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("MMM d, h:mm a", Locale.US).withZone(ZoneId.systemDefault());
 	private final JPanel ordersPanel = new JPanel();
 	private final RunelitePlanPanel planPanel = new RunelitePlanPanel();
+	private final HunterRumourPanel hunterPanel = new HunterRumourPanel();
+	private HunterRumourGuide hunterGuide;
 	private List<RuneliteOrders.Card> cards = Collections.emptyList();
 	private RuneliteOrders orders;
 	private String focusId;
@@ -32,8 +35,14 @@ final class RuneliteOrdersPanel extends PluginPanel
 	{
 		ordersPanel.setLayout(new BoxLayout(ordersPanel, BoxLayout.Y_AXIS));
 		ordersPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		add(ordersPanel);
-		add(planPanel);
+		JPanel ordersTab = new JPanel();
+		ordersTab.setLayout(new BoxLayout(ordersTab, BoxLayout.Y_AXIS));
+		ordersTab.add(ordersPanel);
+		ordersTab.add(planPanel);
+		JTabbedPane tabs = new JTabbedPane();
+		tabs.addTab("Orders", ordersTab);
+		tabs.addTab("Hunter Rumours", hunterPanel);
+		add(tabs);
 		planPanel.setVisible(false);
 		render();
 	}
@@ -55,6 +64,12 @@ final class RuneliteOrdersPanel extends PluginPanel
 	}
 
 	void showPlan(RunelitePlan plan) { planPanel.showPlan(plan); }
+	void showHunterGuide(HunterRumourGuide guide)
+	{
+		if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(() -> showHunterGuide(guide)); return; }
+		hunterGuide = guide;
+		render();
+	}
 	void showInventory(String revision, Map<String, Integer> quantities) { planPanel.showInventory(revision, quantities); }
 	void resetSession()
 	{
@@ -66,6 +81,7 @@ final class RuneliteOrdersPanel extends PluginPanel
 
 	private void render()
 	{
+		hunterPanel.showRumour(cards, hunterGuide, loggedIn);
 		ordersPanel.removeAll();
 		ordersPanel.add(copy("CAPTAIN'S ORDERS", ColorScheme.BRAND_ORANGE));
 		if (!loggedIn) { ordersPanel.add(copy("Log in to see your current assignments and suggestions.", Color.LIGHT_GRAY)); }
@@ -76,6 +92,7 @@ final class RuneliteOrdersPanel extends PluginPanel
 			if (cards.isEmpty()) { ordersPanel.add(copy("No assignment has been observed yet. Check your Slayer task or Hunter whistle in-game.", Color.LIGHT_GRAY)); }
 			for (RuneliteOrders.Card card : cards)
 			{
+				if (card.id.startsWith("hunter:")) { continue; }
 				boolean focused = card.id.equals(focusId);
 				JPanel row = new JPanel();
 				row.setLayout(new BoxLayout(row, BoxLayout.Y_AXIS));
@@ -103,7 +120,7 @@ final class RuneliteOrdersPanel extends PluginPanel
 		ordersPanel.repaint();
 	}
 
-	private static JLabel copy(String text, Color color)
+	static JLabel copy(String text, Color color)
 	{
 		String safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
 		JLabel label = new JLabel("<html><div style='width:185px;padding-bottom:6px'>" + safe + "</div></html>");

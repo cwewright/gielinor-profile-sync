@@ -44,7 +44,7 @@ final class HunterRumourPanel extends JPanel
 			else
 			{
 				BufferedImage image = guide.image(creature);
-				if (image != null) { JLabel picture = new JLabel(new ImageIcon(image)); picture.setToolTipText(creature.name + " · Jagex / OSRS Wiki"); add(picture); }
+				if (image != null) { JLabel picture = new JLabel(new ImageIcon(image)); picture.setAlignmentX(LEFT_ALIGNMENT); picture.setToolTipText(creature.name + " · Jagex / OSRS Wiki"); add(picture); }
 				add(RuneliteOrdersPanel.copy(creature.method + " · Hunter " + creature.level, Color.WHITE));
 				add(RuneliteOrdersPanel.copy("WHERE TO HUNT", ColorScheme.BRAND_ORANGE));
 				for (String location : creature.locations)
@@ -64,6 +64,7 @@ final class HunterRumourPanel extends JPanel
 				for (String item : gear.optional) { add(RuneliteOrdersPanel.copy("Optional: " + item, Color.LIGHT_GRAY)); }
 				add(RuneliteOrdersPanel.copy("Bring a way back to the Guild and leave room for the rare part. Location access may require quests or travel unlocks.", Color.LIGHT_GRAY));
 				JButton locations = new JButton("Open Wiki guide");
+				locations.setAlignmentX(LEFT_ALIGNMENT);
 				locations.addActionListener(event -> LinkBrowser.browse(creature.sourceUrl));
 				add(locations);
 				add(RuneliteOrdersPanel.copy("Guide checked " + guide.verifiedAt + " · images © Jagex via OSRS Wiki", Color.LIGHT_GRAY));

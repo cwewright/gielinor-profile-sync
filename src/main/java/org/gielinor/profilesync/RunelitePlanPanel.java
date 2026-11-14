@@ -24,9 +24,9 @@ import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.FontManager;
-import net.runelite.client.ui.PluginPanel;
+import net.runelite.client.ui.DynamicGridLayout;
 
-final class RunelitePlanPanel extends PluginPanel
+final class RunelitePlanPanel extends JPanel
 {
 	private static final DateTimeFormatter UPDATED_FORMAT = DateTimeFormatter.ofPattern("MMM d, h:mm a", Locale.US)
 		.withZone(ZoneId.systemDefault());
@@ -49,6 +49,8 @@ final class RunelitePlanPanel extends PluginPanel
 	RunelitePlanPanel(RunelitePlanProgress savedProgress)
 	{
 		this.savedProgress = savedProgress;
+		setLayout(new DynamicGridLayout(0, 1, 0, 3));
+		setBackground(ColorScheme.DARK_GRAY_COLOR);
 		setBorder(new EmptyBorder(10, 10, 10, 10));
 		renderEmpty();
 	}
@@ -185,6 +187,7 @@ final class RunelitePlanPanel extends PluginPanel
 		add(progress);
 		add(note("Checked supplies stay hidden after use. Show them below to undo a check."));
 		JButton reveal = new JButton(showChecked ? "Hide checked supplies" : "Show checked supplies");
+		reveal.setMargin(new java.awt.Insets(4, 4, 4, 4));
 		reveal.addActionListener(event -> { showChecked = !showChecked; renderPlan(); });
 		add(reveal);
 
@@ -232,12 +235,12 @@ final class RunelitePlanPanel extends PluginPanel
 		JPanel copy = new JPanel();
 		copy.setOpaque(false);
 		copy.setLayout(new BoxLayout(copy, BoxLayout.Y_AXIS));
-		JLabel label = new JLabel(quantity(item) + " × " + item.getLabel());
+		JLabel label = new SidebarLabel(quantity(item) + " × " + item.getLabel(), Color.WHITE);
 		label.setForeground(Color.WHITE);
 		label.setFont(FontManager.getDefaultBoldFont());
 		label.setAlignmentX(Component.LEFT_ALIGNMENT);
 		copy.add(label);
-		JLabel status = new JLabel(status(item));
+		JLabel status = new SidebarLabel(status(item), ColorScheme.LIGHT_GRAY_COLOR);
 		status.setForeground(item.isReady() ? ColorScheme.PROGRESS_COMPLETE_COLOR : ColorScheme.LIGHT_GRAY_COLOR);
 		status.setFont(FontManager.getDefaultFont().deriveFont(11f));
 		status.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -252,7 +255,7 @@ final class RunelitePlanPanel extends PluginPanel
 		}
 		if (item.getNote() != null)
 		{
-			JLabel itemNote = htmlLabel(item.getNote(), ColorScheme.LIGHT_GRAY_COLOR, 185);
+			JLabel itemNote = htmlLabel(item.getNote(), ColorScheme.LIGHT_GRAY_COLOR);
 			itemNote.setAlignmentX(Component.LEFT_ALIGNMENT);
 			copy.add(itemNote);
 		}
@@ -311,7 +314,7 @@ final class RunelitePlanPanel extends PluginPanel
 
 	private static JLabel heading(String value, Color color)
 	{
-		JLabel label = new JLabel(value);
+		JLabel label = new SidebarLabel(value, color);
 		label.setForeground(color);
 		label.setFont(FontManager.getDefaultBoldFont().deriveFont(11f));
 		label.setBorder(new EmptyBorder(0, 0, 2, 0));
@@ -320,37 +323,32 @@ final class RunelitePlanPanel extends PluginPanel
 
 	private static JLabel title(String value)
 	{
-		JLabel label = htmlLabel(value, Color.WHITE, 205);
+		JLabel label = htmlLabel(value, Color.WHITE);
 		label.setFont(FontManager.getDefaultBoldFont().deriveFont(18f));
 		return label;
 	}
 
 	private static JLabel body(String value)
 	{
-		JLabel label = htmlLabel(value, ColorScheme.TEXT_COLOR, 205);
+		JLabel label = htmlLabel(value, ColorScheme.TEXT_COLOR);
 		label.setBorder(new EmptyBorder(2, 0, 4, 0));
 		return label;
 	}
 
 	private static JLabel note(String value)
 	{
-		JLabel label = htmlLabel(value, ColorScheme.LIGHT_GRAY_COLOR, 205);
+		JLabel label = htmlLabel(value, ColorScheme.LIGHT_GRAY_COLOR);
 		label.setFont(FontManager.getDefaultFont().deriveFont(11f));
 		label.setBorder(new EmptyBorder(3, 0, 6, 0));
 		return label;
 	}
 
-	private static JLabel htmlLabel(String value, Color color, int width)
+	private static JLabel htmlLabel(String value, Color color)
 	{
-		JLabel label = new JLabel("<html><div style='width:" + width + "px'>" + escapeHtml(value) + "</div></html>");
+		JLabel label = new SidebarLabel(value, color);
 		label.setForeground(color);
 		label.setVerticalAlignment(SwingConstants.TOP);
 		return label;
-	}
-
-	private static String escapeHtml(String value)
-	{
-		return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");
 	}
 
 	private void finishRender()

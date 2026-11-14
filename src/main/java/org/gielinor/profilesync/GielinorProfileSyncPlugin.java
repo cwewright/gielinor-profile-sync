@@ -90,7 +90,7 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.13";
+	private static final String PLUGIN_VERSION = "0.1.14";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int MODEL_SAMPLE_INTERVAL_TICKS = 10;
@@ -699,7 +699,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "playerOwnedHouse", "playerOwnedHouseLayout", "collectionLogPageObservations", "containers", "sailingFleet", "sailingBoatNames", "grandExchange", "appearance", "playerModel", "playerModelVariants", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags", "vesselPortraitCaptures"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "masteringMixology", "playerOwnedHouse", "playerOwnedHouseLayout", "collectionLogPageObservations", "containers", "sailingFleet", "sailingBoatNames", "grandExchange", "appearance", "playerModel", "playerModelVariants", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags", "vesselPortraitCaptures"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -770,6 +770,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		));
 		snapshot.put("hunterRumours", hunterRumours.snapshot());
 		snapshot.put("slayer", SlayerTaskSnapshot.build(client, now));
+		snapshot.put("masteringMixology", MixologySnapshot.build(client::getVarpValue, client::getVarbitValue, now));
 		snapshot.put("collectionLog", collectionLogSnapshots.current().toMap());
 
 		ExecutorService executor = fileExecutor;

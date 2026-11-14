@@ -85,6 +85,7 @@ Construction supply checklist stays available below.
 - Sailing boat names, fitted components, and observed cargo with freshness information
 - House furniture and room layouts observed while visiting your own house in building mode
 - Hunter Rumours observed in Hunter Guild dialogue or Quetzal whistle messages
+- Mastering Mixology reward points and stored hopper paste, with separate Mox, Aga, and Lye balances
 - Collection Log pages you have opened, retained separately for each account
 - Quest states
 - Achievement Diary task counts, tier completion, and separately claimed rewards

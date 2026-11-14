@@ -90,7 +90,7 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.10";
+	private static final String PLUGIN_VERSION = "0.1.11";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int MODEL_SAMPLE_INTERVAL_TICKS = 10;
@@ -122,6 +122,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	private final PohSnapshotTracker pohSnapshots = new PohSnapshotTracker();
 	private final HunterRumourSnapshot hunterRumours = new HunterRumourSnapshot();
+	private final DiaryJournalSnapshot diaryJournals = new DiaryJournalSnapshot();
+	private int diaryJournalPendingTicks;
 	private final CollectionLogAccountSnapshots collectionLogSnapshots = new CollectionLogAccountSnapshots();
 
 	@Inject
@@ -426,6 +428,10 @@ public class GielinorProfileSyncPlugin extends Plugin
 	@Subscribe
 	public void onWidgetLoaded(WidgetLoaded event)
 	{
+		if (event.getGroupId() == InterfaceID.JOURNALSCROLL)
+		{
+			diaryJournalPendingTicks = 3;
+		}
 		if (isBankInterface(event.getGroupId()))
 		{
 			bankInterfaceOpen = true;
@@ -510,6 +516,21 @@ public class GielinorProfileSyncPlugin extends Plugin
 		if (!rsn.equals(lastRsn))
 		{
 			resetAccount(rsn);
+		}
+		if (diaryJournalPendingTicks > 0 && --diaryJournalPendingTicks == 0)
+		{
+			Widget title = client.getWidget(InterfaceID.Journalscroll.TITLE);
+			Widget text = client.getWidget(InterfaceID.Journalscroll.TEXTLAYER);
+			if (title != null && text != null && !text.isHidden())
+			{
+				List<String> rows = new ArrayList<>();
+				for (Widget child : text.getStaticChildren())
+				{
+					rows.add(child == null ? "" : child.getText());
+				}
+				diaryJournals.observe(title.getText(), rows, System.currentTimeMillis());
+				ticksSinceExport = Math.max(10, config.exportIntervalTicks());
+			}
 		}
 
 		ticksLoggedIn++;
@@ -716,7 +737,9 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("grandExchange", grandExchange);
 		snapshot.put("grandExchangeAccountValueEstimate", getLong(grandExchange.get("accountValueEstimate")));
 		snapshot.put("quests", buildQuests());
-		snapshot.put("achievementDiaries", AchievementDiarySnapshot.build(client::getVarbitValue));
+		Map<String, Object> diaries = AchievementDiarySnapshot.build(client::getVarbitValue);
+		diaries.put("journalObservations", diaryJournals.snapshot());
+		snapshot.put("achievementDiaries", diaries);
 		if (rsn.equals(previousSnapshot.get("rsn")))
 		{
 			hunterRumours.restore(previousSnapshot.get("hunterRumours"));
@@ -1530,6 +1553,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 		lastRsn = "";
 		collectionLogSnapshots.deactivate();
 		hunterRumours.resetAccount();
+		diaryJournals.resetAccount();
+		diaryJournalPendingTicks = 0;
 		pohSnapshots.resetAccount();
 		lastGoodBank = null;
 		lastGoodInventory = null;
@@ -1547,6 +1572,33 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	private void resetAccount(String rsn)
 	{
+		diaryJournals.resetAccount();
+		if (fileExecutor != null)
+		{
+			fileExecutor.execute(() -> {
+				Map<String, Object> saved;
+				try
+				{
+					saved = getExportStore().readAccount(rsn);
+				}
+				catch (IOException ex)
+				{
+					log.debug("Could not restore diary observations", ex);
+					return;
+				}
+				Object raw = saved.get("achievementDiaries");
+				if (raw instanceof Map && rsn.equals(saved.get("rsn")))
+				{
+					Object journals = ((Map<?, ?>) raw).get("journalObservations");
+					clientThread.invokeLater(() -> {
+						if (rsn.equals(lastRsn))
+						{
+							diaryJournals.restore(journals);
+						}
+					});
+				}
+			});
+		}
 		planInventoryDirty = true;
 		RuneliteOrdersPanel panel = runelitePlanPanel;
 		if (panel != null)

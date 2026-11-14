@@ -135,3 +135,9 @@ gradlew.bat run
 See [docs/schema-v1.md](docs/schema-v1.md) for the stable top-level contract.
 
 </details>
+
+## Hunter Rumours field guide
+
+Open the Hunter Rumours tab inside the Sailor's Log sidebar to see your observed assignment, creature picture, hunting locations, and supplies. Check your Quetzal whistle or Guild Hunter dialogue after changing rumours. Unobserved assignments remain unknown.
+
+Creature images are © Jagex, sourced from the OSRS Wiki. Individual source links and the guide verification date are recorded in `src/main/resources/org/gielinor/profilesync/hunter/guide.json`. The guide and small images are bundled locally; this tab makes no network requests.

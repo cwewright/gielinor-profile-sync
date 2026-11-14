@@ -90,7 +90,7 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.11";
+	private static final String PLUGIN_VERSION = "0.1.12";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int MODEL_SAMPLE_INTERVAL_TICKS = 10;
@@ -200,7 +200,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		exportStore = null;
 		runelitePlanPanel = new RuneliteOrdersPanel();
 		runelitePlanNavigation = NavigationButton.builder()
-			.tooltip("Sailor's Log · Captain's Orders")
+			.tooltip("Sailor's Log · Orders and Hunter Rumours")
 			.icon(createPlanIcon())
 			.priority(7)
 			.panel(runelitePlanPanel)
@@ -215,6 +215,16 @@ public class GielinorProfileSyncPlugin extends Plugin
 		});
 		fileExecutor.execute(() ->
 		{
+			try
+			{
+				HunterRumourGuide guide = HunterRumourGuide.load(gson);
+				RuneliteOrdersPanel panel = runelitePlanPanel;
+				if (panel != null) { panel.showHunterGuide(guide); }
+			}
+			catch (IOException | RuntimeException e)
+			{
+				log.debug("Could not load the bundled Hunter field guide.", e);
+			}
 			try
 			{
 				previousSnapshot = getExportStore().readLatest();

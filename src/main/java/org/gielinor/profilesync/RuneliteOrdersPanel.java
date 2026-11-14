@@ -22,7 +22,7 @@ final class RuneliteOrdersPanel extends PluginPanel
 {
 	private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("MMM d, h:mm a", Locale.US).withZone(ZoneId.systemDefault());
 	private final JPanel ordersPanel = new JPanel();
-	private final RunelitePlanPanel planPanel = new RunelitePlanPanel();
+	private final RunelitePlanPanel planPanel;
 	private final HunterRumourPanel hunterPanel = new HunterRumourPanel();
 	private HunterRumourGuide hunterGuide;
 	private List<RuneliteOrders.Card> cards = Collections.emptyList();
@@ -33,6 +33,12 @@ final class RuneliteOrdersPanel extends PluginPanel
 
 	RuneliteOrdersPanel()
 	{
+		this(null);
+	}
+
+	RuneliteOrdersPanel(RunelitePlanProgress progress)
+	{
+		planPanel = new RunelitePlanPanel(progress);
 		ordersPanel.setLayout(new BoxLayout(ordersPanel, BoxLayout.Y_AXIS));
 		ordersPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		JPanel ordersTab = new JPanel();
@@ -64,6 +70,7 @@ final class RuneliteOrdersPanel extends PluginPanel
 	}
 
 	void showPlan(RunelitePlan plan) { planPanel.showPlan(plan); }
+	void setPlanAccount(String account) { planPanel.setAccount(account); }
 	void showHunterGuide(HunterRumourGuide guide)
 	{
 		if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(() -> showHunterGuide(guide)); return; }

@@ -8,6 +8,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import javax.swing.JCheckBox;
+import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JProgressBar;
 import javax.swing.SwingUtilities;
@@ -36,7 +37,7 @@ public class RunelitePlanPanelTest
 				new RunelitePlan.Item("hammer", "Hammer", 1, null, null, "unknown", "Verify at the bank", false, "tool")));
 		RunelitePlanPanel panel = new RunelitePlanPanel();
 
-		SwingUtilities.invokeAndWait(() -> panel.showPlan(plan));
+		SwingUtilities.invokeAndWait(() -> { panel.showPlan(plan); showChecked(panel); });
 		List<Component> firstRender = descendants(panel);
 		assertEquals(2, firstRender.stream().filter(JCheckBox.class::isInstance).count());
 		JProgressBar initialProgress = firstRender.stream().filter(JProgressBar.class::isInstance)
@@ -73,6 +74,7 @@ public class RunelitePlanPanelTest
 		SwingUtilities.invokeAndWait(() ->
 		{
 			panel.showPlan(plan);
+			showChecked(panel);
 			panel.showInventory("revision", Collections.singletonMap("salmon", 2));
 		});
 		assertFalse(supplyCheck(panel).isSelected());
@@ -98,6 +100,7 @@ public class RunelitePlanPanelTest
 		SwingUtilities.invokeAndWait(() ->
 		{
 			panel.showPlan(cookingPlan("revision"));
+			showChecked(panel);
 			panel.showInventory("revision", Collections.singletonMap("raw salmon", 2));
 			supplyCheck(panel).doClick();
 			panel.showInventory("revision", Collections.singletonMap("raw salmon", 3));
@@ -108,6 +111,7 @@ public class RunelitePlanPanelTest
 		SwingUtilities.invokeAndWait(() ->
 		{
 			panel.resetSession();
+			showChecked(panel);
 			panel.showInventory("revision", Collections.singletonMap("raw salmon", 2));
 		});
 		assertTrue(supplyCheck(panel).isSelected());
@@ -130,6 +134,18 @@ public class RunelitePlanPanelTest
 		SwingUtilities.invokeAndWait(() -> panel.showInventory("new", Collections.singletonMap("range", 1)));
 		assertEquals(0, descendants(panel).stream().filter(JCheckBox.class::isInstance).map(JCheckBox.class::cast)
 			.filter(JCheckBox::isSelected).count());
+	}
+
+	private static void showChecked(RunelitePlanPanel panel)
+	{
+		for (Component child : descendants(panel))
+		{
+			if (child instanceof JButton && "Show checked supplies".equals(((JButton) child).getText()))
+			{
+				((JButton) child).doClick();
+				return;
+			}
+		}
 	}
 
 	private static RunelitePlan cookingPlan(String revision)

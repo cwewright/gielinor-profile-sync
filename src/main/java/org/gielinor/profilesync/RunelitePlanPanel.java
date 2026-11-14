@@ -15,6 +15,7 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JCheckBox;
+import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
@@ -36,9 +37,18 @@ final class RunelitePlanPanel extends PluginPanel
 	private String revision;
 	private RunelitePlan currentPlan;
 	private Map<String, Integer> inventoryQuantities;
+	private final RunelitePlanProgress savedProgress;
+	private String accountName;
+	private boolean showChecked;
 
 	RunelitePlanPanel()
 	{
+		this(null);
+	}
+
+	RunelitePlanPanel(RunelitePlanProgress savedProgress)
+	{
+		this.savedProgress = savedProgress;
 		setBorder(new EmptyBorder(10, 10, 10, 10));
 		renderEmpty();
 	}
@@ -69,7 +79,37 @@ final class RunelitePlanPanel extends PluginPanel
 		inventoryQuantities = null;
 		revision = plan.getRevision();
 		currentPlan = plan;
+		restoreProgress();
 		renderPlan();
+	}
+
+	void setAccount(String account)
+	{
+		accountName = account;
+		locallyChecked.clear();
+		manualOverrides.clear();
+		inventoryQuantities = null;
+		restoreProgress();
+		if (currentPlan != null) { renderPlan(); }
+	}
+
+	private void restoreProgress()
+	{
+		if (savedProgress == null || accountName == null || currentPlan == null) { return; }
+		RunelitePlanProgress.State state = savedProgress.read(accountName, currentPlan.getRevision());
+		for (RunelitePlan.Item item : currentPlan.getItems())
+		{
+			if (state.checked.contains(item.getId())) { locallyChecked.add(item.getId()); }
+			if (state.manual.contains(item.getId())) { manualOverrides.add(item.getId()); }
+		}
+	}
+
+	private void persistProgress()
+	{
+		if (savedProgress != null && accountName != null && currentPlan != null)
+		{
+			savedProgress.write(accountName, currentPlan.getRevision(), locallyChecked, manualOverrides);
+		}
 	}
 
 	void showInventory(String planRevision, Map<String, Integer> quantities)
@@ -79,6 +119,7 @@ final class RunelitePlanPanel extends PluginPanel
 			return;
 		}
 		Map<String, Integer> carried = new HashMap<>();
+		boolean changed = false;
 		for (RunelitePlan.Item item : currentPlan.getItems())
 		{
 			if (item.getRequired() <= 0 || "facility".equals(item.getKind()))
@@ -89,10 +130,11 @@ final class RunelitePlanPanel extends PluginPanel
 			carried.put(item.getId(), quantity);
 			if (quantity >= item.getRequired() && !manualOverrides.contains(item.getId()))
 			{
-				locallyChecked.add(item.getId());
+				changed |= locallyChecked.add(item.getId());
 			}
 		}
-		if (carried.equals(inventoryQuantities))
+		if (changed) { persistProgress(); }
+		if (carried.equals(inventoryQuantities) && !changed)
 		{
 			return;
 		}
@@ -102,6 +144,8 @@ final class RunelitePlanPanel extends PluginPanel
 
 	void resetSession()
 	{
+		accountName = null;
+		showChecked = false;
 		locallyChecked.clear();
 		manualOverrides.clear();
 		inventoryQuantities = null;
@@ -139,14 +183,21 @@ final class RunelitePlanPanel extends PluginPanel
 		progress.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		progress.setBorder(new EmptyBorder(7, 0, 8, 0));
 		add(progress);
-		add(note("Supplies tick off once enough are in your inventory, and stay checked after use. You can change any check manually."));
+		add(note("Checked supplies stay hidden after use. Show them below to undo a check."));
+		JButton reveal = new JButton(showChecked ? "Hide checked supplies" : "Show checked supplies");
+		reveal.addActionListener(event -> { showChecked = !showChecked; renderPlan(); });
+		add(reveal);
 
 		for (RunelitePlan.Item item : currentPlan.getItems())
 		{
-			add(itemRow(item, accent));
+			if (showChecked || !locallyChecked.contains(item.getId())) { add(itemRow(item, accent)); }
+		}
+		if (!showChecked && completedCount() == currentPlan.getItems().size())
+		{
+			add(body("All supplies are checked. Publish a new plan when you are ready."));
 		}
 
-		add(note("Updated " + UPDATED_FORMAT.format(currentPlan.getUpdatedAt()) + " · checks stay local to this RuneLite session"));
+		add(note("Updated " + UPDATED_FORMAT.format(currentPlan.getUpdatedAt()) + " · progress saved for this character and plan"));
 		finishRender();
 	}
 
@@ -173,6 +224,7 @@ final class RunelitePlanPanel extends PluginPanel
 			{
 				locallyChecked.remove(item.getId());
 			}
+			persistProgress();
 			renderPlan();
 		});
 		row.add(checkBox, BorderLayout.WEST);

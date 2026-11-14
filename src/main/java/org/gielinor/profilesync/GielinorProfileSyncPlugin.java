@@ -90,7 +90,7 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.12";
+	private static final String PLUGIN_VERSION = "0.1.13";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int MODEL_SAMPLE_INTERVAL_TICKS = 10;
@@ -110,6 +110,9 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	@Inject
 	private Gson gson;
+
+	@Inject
+	private ConfigManager configManager;
 
 	@Inject
 	private ItemManager itemManager;
@@ -198,7 +201,9 @@ public class GielinorProfileSyncPlugin extends Plugin
 	protected void startUp()
 	{
 		exportStore = null;
-		runelitePlanPanel = new RuneliteOrdersPanel();
+		runelitePlanPanel = new RuneliteOrdersPanel(new RunelitePlanProgress(gson,
+			key -> configManager.getConfiguration(CONFIG_GROUP, key),
+			(key, value) -> configManager.setConfiguration(CONFIG_GROUP, key, value)));
 		runelitePlanNavigation = NavigationButton.builder()
 			.tooltip("Sailor's Log · Orders and Hunter Rumours")
 			.icon(createPlanIcon())
@@ -1613,7 +1618,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		RuneliteOrdersPanel panel = runelitePlanPanel;
 		if (panel != null)
 		{
-			SwingUtilities.invokeLater(panel::resetSession);
+			SwingUtilities.invokeLater(() -> { panel.resetSession(); panel.setPlanAccount(rsn); });
 		}
 		hunterRumours.resetAccount();
 		pohSnapshots.resetAccount();

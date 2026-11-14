@@ -98,6 +98,8 @@ public class RuneliteOrdersTest
 			panel.showPlan(plan);
 			panel.showOrders(orders.cards, orders, true);
 			panel.showInventory("revision", Map.of("raw salmon", 1));
+			descendants(panel).stream().filter(JButton.class::isInstance).map(JButton.class::cast)
+				.filter(button -> button.getText().equals("Show checked supplies")).findFirst().get().doClick();
 		});
 		assertTrue(descendants(panel).stream().filter(JCheckBox.class::isInstance).map(JCheckBox.class::cast).findFirst().get().isSelected());
 		JButton focus = descendants(panel).stream().filter(JButton.class::isInstance).map(JButton.class::cast)

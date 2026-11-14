@@ -1,6 +1,9 @@
 package org.gielinor.profilesync;
 
 import java.awt.Color;
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Insets;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Collections;
@@ -22,7 +25,7 @@ final class RuneliteOrdersPanel extends PluginPanel
 {
 	private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("MMM d, h:mm a", Locale.US).withZone(ZoneId.systemDefault());
 	private final JPanel ordersPanel = new JPanel();
-	private final RunelitePlanPanel planPanel = new RunelitePlanPanel();
+	private final RunelitePlanPanel planPanel;
 	private final HunterRumourPanel hunterPanel = new HunterRumourPanel();
 	private HunterRumourGuide hunterGuide;
 	private List<RuneliteOrders.Card> cards = Collections.emptyList();
@@ -33,7 +36,16 @@ final class RuneliteOrdersPanel extends PluginPanel
 
 	RuneliteOrdersPanel()
 	{
+		this(null);
+	}
+
+	RuneliteOrdersPanel(RunelitePlanProgress progress)
+	{
+		planPanel = new RunelitePlanPanel(progress);
+		setLayout(new BorderLayout());
 		ordersPanel.setLayout(new BoxLayout(ordersPanel, BoxLayout.Y_AXIS));
+		ordersPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+		planPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 		ordersPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		JPanel ordersTab = new JPanel();
 		ordersTab.setLayout(new BoxLayout(ordersTab, BoxLayout.Y_AXIS));
@@ -64,6 +76,7 @@ final class RuneliteOrdersPanel extends PluginPanel
 	}
 
 	void showPlan(RunelitePlan plan) { planPanel.showPlan(plan); }
+	void setPlanAccount(String account) { planPanel.setAccount(account); }
 	void showHunterGuide(HunterRumourGuide guide)
 	{
 		if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(() -> showHunterGuide(guide)); return; }
@@ -96,6 +109,7 @@ final class RuneliteOrdersPanel extends PluginPanel
 				boolean focused = card.id.equals(focusId);
 				JPanel row = new JPanel();
 				row.setLayout(new BoxLayout(row, BoxLayout.Y_AXIS));
+				row.setAlignmentX(Component.LEFT_ALIGNMENT);
 				row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 				row.setBorder(BorderFactory.createEmptyBorder(7, 6, 9, 6));
 				row.add(copy(card.title, Color.WHITE));
@@ -106,11 +120,15 @@ final class RuneliteOrdersPanel extends PluginPanel
 					if (card.sourceUrl != null && RuneliteOrders.safeGuide(card.sourceUrl))
 					{
 						JButton guide = new JButton("Open Wiki guide");
+						guide.setAlignmentX(Component.LEFT_ALIGNMENT);
+						guide.setMargin(new Insets(4, 4, 4, 4));
 						guide.addActionListener(event -> LinkBrowser.browse(card.sourceUrl));
 						row.add(guide);
 					}
 				}
 				JButton focus = new JButton(focused ? "Show all suggestions" : "Make this my focus");
+				focus.setAlignmentX(Component.LEFT_ALIGNMENT);
+				focus.setMargin(new Insets(4, 4, 4, 4));
 				focus.addActionListener(event -> { focusId = focused ? null : card.id; render(); });
 				row.add(focus);
 				ordersPanel.add(row);
@@ -122,9 +140,8 @@ final class RuneliteOrdersPanel extends PluginPanel
 
 	static JLabel copy(String text, Color color)
 	{
-		String safe = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
-		JLabel label = new JLabel("<html><div style='width:185px;padding-bottom:6px'>" + safe + "</div></html>");
-		label.setForeground(color);
+		JLabel label = new SidebarLabel(text, color);
+		label.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0));
 		return label;
 	}
 }

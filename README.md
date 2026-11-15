@@ -122,3 +122,9 @@ gradlew.bat run
 See [docs/schema-v1.md](docs/schema-v1.md) for the stable top-level contract.
 
 </details>
+
+## More profile observations
+
+- Saves up to four distinct recent character poses for the current appearance.
+- Retains named Achievement Diary task completion observed in opened journals.
+- Exports separate Mastering Mixology reward points and hopper paste balances.

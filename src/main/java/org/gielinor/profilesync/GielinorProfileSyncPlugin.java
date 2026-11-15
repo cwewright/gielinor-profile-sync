@@ -90,7 +90,7 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.16";
+	private static final String PLUGIN_VERSION = "0.1.17";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int MODEL_SAMPLE_INTERVAL_TICKS = 10;
@@ -125,6 +125,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	private final PohSnapshotTracker pohSnapshots = new PohSnapshotTracker();
 	private final CarpenterPointsTracker carpenterPoints = new CarpenterPointsTracker();
+	private final MinigameProgressTracker minigameProgress = new MinigameProgressTracker();
 	private final HunterRumourSnapshot hunterRumours = new HunterRumourSnapshot();
 	private final DiaryJournalSnapshot diaryJournals = new DiaryJournalSnapshot();
 	private int diaryJournalPendingTicks;
@@ -485,6 +486,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	@Subscribe
 	public void onChatMessage(ChatMessage event)
 	{
+		if (client.getGameState() == GameState.LOGGED_IN && ticksLoggedIn >= 2 && event.getType() == ChatMessageType.GAMEMESSAGE) minigameProgress.observeRiftTotals(event.getMessage(), System.currentTimeMillis());
 		Player player = client.getLocalPlayer();
 		if (client.getGameState() != GameState.LOGGED_IN || player == null || !lastRsn.equals(player.getName()))
 		{
@@ -553,6 +555,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 			}
 		}
 
+		// Fixed reward-widget lookups only; never scan scene objects or chat.
+		if (ticksLoggedIn % 5 == 0) minigameProgress.observeWidgets(client::getWidget, System.currentTimeMillis());
 		ticksLoggedIn++;
 		ticksSinceExport++;
 		ticksSinceModelSample++;
@@ -704,7 +708,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "masteringMixology", "carpenterPoints", "playerOwnedHouse", "playerOwnedHouseLayout", "collectionLogPageObservations", "containers", "sailingFleet", "sailingBoatNames", "grandExchange", "appearance", "playerModel", "playerModelVariants", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags", "vesselPortraitCaptures"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "masteringMixology", "carpenterPoints", "minigameProgress", "playerOwnedHouse", "playerOwnedHouseLayout", "collectionLogPageObservations", "containers", "sailingFleet", "sailingBoatNames", "grandExchange", "appearance", "playerModel", "playerModelVariants", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags", "vesselPortraitCaptures"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -765,6 +769,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 			hunterRumours.restore(previousSnapshot.get("hunterRumours"));
 			pohSnapshots.restore(previousSnapshot.get("playerOwnedHouse"));
 			carpenterPoints.restore(previousSnapshot.get("carpenterPoints"));
+			minigameProgress.restore(previousSnapshot.get("minigameProgress"));
 		}
 		pohSnapshots.refresh(client::getObjectDefinition);
 		snapshot.put("playerOwnedHouse", pohSnapshots.snapshot(
@@ -778,6 +783,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("hunterRumours", hunterRumours.snapshot());
 		snapshot.put("slayer", SlayerTaskSnapshot.build(client, now));
 		snapshot.put("carpenterPoints", carpenterPoints.snapshot(client.getWidget(InterfaceID.ConstructionContractShop.TOTAL), now));
+		snapshot.put("minigameProgress", minigameProgress.snapshot(client::getVarpValue, client::getVarbitValue, client::getWidget, client.getItemContainer(InventoryID.FORESTRY_KIT), now));
 		snapshot.put("masteringMixology", MixologySnapshot.build(client::getVarpValue, client::getVarbitValue, now));
 		snapshot.put("collectionLog", collectionLogSnapshots.current().toMap());
 
@@ -1581,6 +1587,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		diaryJournalPendingTicks = 0;
 		pohSnapshots.resetAccount();
 		carpenterPoints.resetAccount();
+		minigameProgress.resetAccount();
 		lastGoodBank = null;
 		lastGoodInventory = null;
 		lastGoodEquipment = null;
@@ -1633,6 +1640,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		hunterRumours.resetAccount();
 		pohSnapshots.resetAccount();
 		carpenterPoints.resetAccount();
+		minigameProgress.resetAccount();
 		lastRsn = rsn;
 		collectionLogSnapshots.activate(rsn);
 		lastGoodBank = null;

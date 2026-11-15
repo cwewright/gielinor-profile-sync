@@ -6,7 +6,12 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntFunction;
 import net.runelite.api.ObjectComposition;
+import net.runelite.api.GameObject;
+import net.runelite.api.WallObject;
+import net.runelite.api.DecorativeObject;
+import net.runelite.api.GroundObject;
 import net.runelite.api.TileObject;
 import net.runelite.api.coords.LocalPoint;
 import net.runelite.api.gameval.ObjectID;
@@ -19,6 +24,7 @@ import net.runelite.api.gameval.ObjectID;
 final class PohSnapshotTracker
 {
 	private final Map<Object, Furniture> sceneFurniture = new IdentityHashMap<>();
+	private final Map<Object, TileObject> trackedObjects = new IdentityHashMap<>();
 	private boolean exitPortalObserved;
 	private int exitPortalSceneX;
 	private int exitPortalSceneY;
@@ -39,6 +45,8 @@ final class PohSnapshotTracker
 			exitPortalSceneY = location.getSceneY();
 			exitPortalPlane = object.getPlane();
 		}
+		if (composition != null && composition.getImpostorIds() != null && trackedObjects.size() < 4096)
+			trackedObjects.put(object, object);
 		LocalPoint location = object.getLocalLocation();
 		Furniture furniture = Furniture.from(
 			object.getId(),
@@ -49,8 +57,25 @@ final class PohSnapshotTracker
 		);
 		if (furniture != null)
 		{
+			int config = object instanceof GameObject ? ((GameObject) object).getConfig()
+				: object instanceof WallObject ? ((WallObject) object).getConfig()
+				: object instanceof DecorativeObject ? ((DecorativeObject) object).getConfig()
+				: object instanceof GroundObject ? ((GroundObject) object).getConfig() : -1;
+			furniture.orientation = config < 0 ? null : config >> 6 & 3;
+			furniture.objectType = config < 0 ? null : config & 31;
+			if (object instanceof GameObject)
+			{
+				GameObject gameObject = (GameObject) object;
+				// Multi-tile LocalPoint is the centre; retain the true scene footprint origin.
+				furniture.sceneX = gameObject.getSceneMinLocation().getX();
+				furniture.sceneY = gameObject.getSceneMinLocation().getY();
+				furniture.sizeX = gameObject.sizeX();
+				furniture.sizeY = gameObject.sizeY();
+			}
 			sceneFurniture.put(object, furniture);
+			trackedObjects.put(object, object);
 		}
+		else sceneFurniture.remove(object);
 	}
 
 	void observeForTest(Object key, int objectId, String name, String... actions)
@@ -74,11 +99,24 @@ final class PohSnapshotTracker
 		}
 	}
 
+	// Resolve varbit-driven variants at export time, not just at initial spawn.
+	void refresh(IntFunction<ObjectComposition> definitions)
+	{
+		if (!exitPortalObserved) return;
+		for (Object key : new ArrayList<>(trackedObjects.keySet()))
+		{
+			if (!(key instanceof TileObject)) continue;
+			TileObject object = (TileObject) key;
+			observe(object, definitions.apply(object.getId()));
+		}
+	}
+
 	void forget(TileObject object)
 	{
 		if (object != null)
 		{
 			sceneFurniture.remove(object);
+			trackedObjects.remove(object);
 			if (object.getId() == ObjectID.POH_EXIT_PORTAL)
 			{
 				exitPortalObserved = false;
@@ -92,6 +130,7 @@ final class PohSnapshotTracker
 	void clearScene()
 	{
 		sceneFurniture.clear();
+		trackedObjects.clear();
 		exitPortalObserved = false;
 		exitPortalSceneX = 0;
 		exitPortalSceneY = 0;
@@ -100,6 +139,7 @@ final class PohSnapshotTracker
 
 	void resetAccount()
 	{
+		clearScene();
 		lastInspection = null;
 	}
 
@@ -151,10 +191,11 @@ final class PohSnapshotTracker
 			{
 				Room room = roomBySceneChunk.get(Room.sceneKey(value.plane, value.sceneX / 8, value.sceneY / 8));
 				Map<String, Object> mapped = value.toMap(room);
-				furniture.add(mapped);
+				if (!"empty-hotspot".equals(value.state)) furniture.add(mapped);
 				if (room != null)
 				{
-					room.furniture.add(mapped);
+					if ("empty-hotspot".equals(value.state)) room.hotspots.add(mapped);
+					else room.furniture.add(mapped);
 				}
 			}
 			List<Map<String, Object>> mappedRooms = new ArrayList<>();
@@ -164,7 +205,9 @@ final class PohSnapshotTracker
 			}
 
 			Map<String, Object> inspection = new LinkedHashMap<>();
-			inspection.put("schemaVersion", 2);
+			inspection.put("schemaVersion", 3);
+			inspection.put("layoutCapture", "loaded-instance-templates");
+			inspection.put("furnitureCapture", "loaded-scene-objects");
 			inspection.put("loaded", true);
 			inspection.put("fromCache", false);
 			inspection.put("lastSeenTimestamp", timestamp);
@@ -194,7 +237,7 @@ final class PohSnapshotTracker
 		}
 
 		Map<String, Object> unavailable = new LinkedHashMap<>();
-		unavailable.put("schemaVersion", 2);
+		unavailable.put("schemaVersion", 3);
 		unavailable.put("loaded", false);
 		unavailable.put("fromCache", false);
 		unavailable.put("lastSeenTimestamp", 0L);
@@ -241,6 +284,24 @@ final class PohSnapshotTracker
 				templateAt(instanceTemplateChunks, value.plane, chunkX, chunkY)
 			));
 		}
+		if (instanceTemplateChunks != null)
+		{
+			for (int p = 0; p < instanceTemplateChunks.length; p++)
+			{
+				if (instanceTemplateChunks[p] == null) continue;
+				for (int x = 0; x < instanceTemplateChunks[p].length; x++)
+				{
+					if (instanceTemplateChunks[p][x] == null) continue;
+					for (int y = 0; y < instanceTemplateChunks[p][x].length; y++)
+					{
+						int template = instanceTemplateChunks[p][x][y];
+						if (PohCatalogue.roomType(template) == null) continue;
+						String key = Room.sceneKey(p, x, y);
+						rooms.putIfAbsent(key, new Room(p, x, y, x - anchorChunkX, y - anchorChunkY, p - exitPortalPlane, template));
+					}
+				}
+			}
+		}
 		List<Room> output = new ArrayList<>(rooms.values());
 		output.sort(Comparator
 			.comparingInt((Room value) -> value.relativePlane)
@@ -265,9 +326,15 @@ final class PohSnapshotTracker
 		private final int objectId;
 		private final String name;
 		private final List<String> actions;
-		private final int sceneX;
-		private final int sceneY;
+		private int sceneX;
+		private int sceneY;
 		private final int plane;
+		private Integer resolvedObjectId;
+		private Integer orientation;
+		private Integer objectType;
+		private Integer sizeX;
+		private Integer sizeY;
+		private String state;
 
 		private Furniture(int objectId, String name, List<String> actions, int sceneX, int sceneY, int plane)
 		{
@@ -277,6 +344,7 @@ final class PohSnapshotTracker
 			this.sceneX = sceneX;
 			this.sceneY = sceneY;
 			this.plane = plane;
+			this.state = "built";
 		}
 
 		private static Furniture from(int objectId, ObjectComposition composition, int sceneX, int sceneY, int plane)
@@ -286,11 +354,12 @@ final class PohSnapshotTracker
 				return null;
 			}
 			ObjectComposition transformed = composition.getImpostorIds() == null ? composition : composition.getImpostor();
-			if (transformed != null)
-			{
-				composition = transformed;
-			}
-			return from(objectId, composition.getName(), sceneX, sceneY, plane, composition.getActions());
+			// A null active transform is an absent object, not its inactive base definition.
+			if (transformed == null) return null;
+			composition = transformed;
+			Furniture result = from(objectId, composition.getName(), sceneX, sceneY, plane, composition.getActions());
+			if (result != null) result.resolvedObjectId = composition.getId();
+			return result;
 		}
 
 		private static Furniture from(int objectId, String name, int sceneX, int sceneY, int plane, String[] rawActions)
@@ -301,6 +370,7 @@ final class PohSnapshotTracker
 			}
 			List<String> actions = new ArrayList<>();
 			boolean removable = false;
+			boolean buildable = false;
 			if (rawActions != null)
 			{
 				for (String action : rawActions)
@@ -309,10 +379,15 @@ final class PohSnapshotTracker
 					{
 						actions.add(action);
 						removable |= "remove".equalsIgnoreCase(action);
+						buildable |= "build".equalsIgnoreCase(action);
 					}
 				}
 			}
-			return removable ? new Furniture(objectId, name, actions, sceneX, sceneY, plane) : null;
+			boolean fixture = objectId == ObjectID.POH_EXIT_PORTAL;
+			if (!removable && !buildable && !fixture) return null;
+			Furniture result = new Furniture(objectId, name, actions, sceneX, sceneY, plane);
+			result.state = fixture ? "fixture" : removable ? "built" : "empty-hotspot";
+			return result;
 		}
 
 		private Map<String, Object> toMap(Room room)
@@ -320,6 +395,14 @@ final class PohSnapshotTracker
 			Map<String, Object> result = new LinkedHashMap<>();
 			result.put("objectId", objectId);
 			result.put("name", name);
+			result.put("state", state);
+			if (resolvedObjectId != null) result.put("resolvedObjectId", resolvedObjectId);
+			String displayName = PohCatalogue.furnitureName(resolvedObjectId == null ? objectId : resolvedObjectId);
+			if (displayName != null) result.put("displayName", displayName);
+			if (orientation != null) result.put("orientation", orientation);
+			if (objectType != null) result.put("objectType", objectType);
+			if (sizeX != null) result.put("sizeX", sizeX);
+			if (sizeY != null) result.put("sizeY", sizeY);
 			result.put("actions", actions);
 			result.put("roomId", room == null ? null : room.id());
 			result.put("tileX", Math.floorMod(sceneX, 8));
@@ -339,6 +422,7 @@ final class PohSnapshotTracker
 		private final int relativePlane;
 		private final int template;
 		private final List<Map<String, Object>> furniture = new ArrayList<>();
+		private final List<Map<String, Object>> hotspots = new ArrayList<>();
 
 		private Room(int plane, int sceneChunkX, int sceneChunkY, int relativeX, int relativeY, int relativePlane, int template)
 		{
@@ -369,13 +453,15 @@ final class PohSnapshotTracker
 		private Map<String, Object> toMap()
 		{
 			Map<String, Object> value = new LinkedHashMap<>();
-			String roomType = classifiedRoomType();
+			String templateType = PohCatalogue.roomType(template);
+			String roomType = templateType;
 			value.put("id", id());
 			value.put("x", relativeX);
 			value.put("y", relativeY);
 			value.put("plane", relativePlane);
 			value.put("identityKnown", roomType != null);
 			value.put("roomType", roomType);
+			value.put("identitySource", templateType != null ? "template" : "unknown");
 			if (template >= 0)
 			{
 				int rotation = template >> 1 & 0x3;
@@ -390,90 +476,10 @@ final class PohSnapshotTracker
 				value.put("templateChunkIndex", templateChunkIndex);
 			}
 			value.put("furniture", furniture);
+			value.put("hotspots", hotspots);
 			value.put("furnitureCount", furniture.size());
 			return value;
 		}
 
-		private String classifiedRoomType()
-		{
-			if (hasAny("magic wardrobe", "fancy dress box", "cape rack", "toy box", "armour case"))
-			{
-				return "Costume room";
-			}
-			if (hasAny("teleportation focus", "portal frame", "portal nexus") || hasNamedPortal())
-			{
-				return "Portal chamber";
-			}
-			if (hasAny("larder", "pump and drain", "firepit with hook", "kitchen sink"))
-			{
-				return "Kitchen";
-			}
-			if (hasAny("workbench", "repair bench", "clockmaker's bench", "helmet pluming stand", "tool store"))
-			{
-				return "Workshop";
-			}
-			if (hasAny("lectern", "telescope", "globe"))
-			{
-				return "Study";
-			}
-			if (hasAny("rejuvenation pool", "restoration pool", "ornate pool", "spirit tree", "fairy ring", "obelisk"))
-			{
-				return "Superior garden";
-			}
-			if (hasAny("jewellery box", "boss lair display", "ancient altar", "occult altar", "lunar altar"))
-			{
-				return "Achievement gallery";
-			}
-			if (hasAny("boxing mat", "boxing ring", "combat ring", "fencing ring"))
-			{
-				return "Combat room";
-			}
-			if (hasAny("attack stone", "balance beam", "prize chest"))
-			{
-				return "Games room";
-			}
-			if (hasAny("pet house", "pet feeder", "pet list"))
-			{
-				return "Menagerie";
-			}
-			if (hasAny("altar"))
-			{
-				return "Chapel";
-			}
-			if (hasAny("bed"))
-			{
-				return "Bedroom";
-			}
-			return null;
-		}
-
-		private boolean hasNamedPortal()
-		{
-			for (Map<String, Object> item : furniture)
-			{
-				String name = String.valueOf(item.get("name")).toLowerCase(java.util.Locale.ROOT);
-				if (name.endsWith(" portal") && !"portal".equals(name) && !"exit portal".equals(name))
-				{
-					return true;
-				}
-			}
-			return false;
-		}
-
-		private boolean hasAny(String... fragments)
-		{
-			for (Map<String, Object> item : furniture)
-			{
-				String name = String.valueOf(item.get("name")).toLowerCase(java.util.Locale.ROOT);
-				for (String fragment : fragments)
-				{
-					if (name.contains(fragment))
-					{
-						return true;
-					}
-				}
-			}
-			return false;
-		}
 	}
 }

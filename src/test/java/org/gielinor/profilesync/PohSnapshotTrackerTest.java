@@ -25,8 +25,8 @@ public class PohSnapshotTrackerTest
 		assertTrue((Boolean) ownHouse.get("loaded"));
 		assertFalse((Boolean) ownHouse.get("fromCache"));
 		assertEquals("building-mode", ownHouse.get("ownershipEvidence"));
-		assertEquals(1, ownHouse.get("furnitureCount"));
-		assertEquals("Oak larder", furniture(ownHouse).get(0).get("name"));
+		assertEquals(2, ownHouse.get("furnitureCount"));
+		assertTrue(furniture(ownHouse).stream().anyMatch(item -> "Oak larder".equals(item.get("name"))));
 		assertFalse(ownHouse.containsKey("coordinates"));
 	}
 
@@ -44,7 +44,7 @@ public class PohSnapshotTrackerTest
 		assertTrue((Boolean) cached.get("loaded"));
 		assertTrue((Boolean) cached.get("fromCache"));
 		assertEquals(300L, cached.get("lastSeenTimestamp"));
-		assertEquals(1, cached.get("furnitureCount"));
+		assertEquals(2, cached.get("furnitureCount"));
 	}
 
 	@Test
@@ -76,9 +76,9 @@ public class PohSnapshotTrackerTest
 
 		Map<String, Object> inspection = tracker.snapshot(700L, true, 3, 2, 5, chunks);
 		List<Map<String, Object>> rooms = (List<Map<String, Object>>) inspection.get("rooms");
-		List<Map<String, Object>> furniture = furniture(inspection);
+		List<Map<String, Object>> furniture = furniture(inspection).stream().filter(item -> "built".equals(item.get("state"))).collect(java.util.stream.Collectors.toList());
 
-		assertEquals(2, inspection.get("schemaVersion"));
+		assertEquals(3, inspection.get("schemaVersion"));
 		assertEquals(true, inspection.get("layoutLoaded"));
 		assertEquals(2, rooms.size());
 		assertEquals("0:0:0", rooms.get(0).get("id"));
@@ -107,6 +107,9 @@ public class PohSnapshotTrackerTest
 			}
 		}
 
+		chunks[0][6][5] = packedChunk(0, 29 * 8 + 2, 110 * 8 + 7, 0);
+		chunks[0][7][5] = packedChunk(0, 29 * 8 + 6, 110 * 8 + 1, 0);
+
 		Map<String, Object> inspection = tracker.snapshot(800L, true, 3, 2, 5, chunks);
 		List<Map<String, Object>> rooms = (List<Map<String, Object>>) inspection.get("rooms");
 
@@ -115,6 +118,63 @@ public class PohSnapshotTrackerTest
 		assertEquals("Kitchen", rooms.get(1).get("roomType"));
 		assertEquals(true, rooms.get(1).get("identityKnown"));
 		assertEquals("Costume room", rooms.get(2).get("roomType"));
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	public void includesEmptyKnownRoomsAndSeparatesHotspotsFromInstalledFurniture()
+	{
+		PohSnapshotTracker tracker = new PohSnapshotTracker();
+		tracker.observeForTest(new Object(), ObjectID.POH_EXIT_PORTAL, "Portal", 40, 40, 0, "Enter");
+		tracker.observeForTest(new Object(), ObjectID.POH_BED_2, "Bed", 49, 43, 0, "Remove");
+		tracker.observeForTest(new Object(), 15261, "Wardrobe space", 50, 43, 0, "Build");
+		int[][][] chunks = emptyChunks();
+		chunks[0][5][5] = packedChunk(1, 30 * 8, 110 * 8 + 1, 0);
+		chunks[0][6][5] = packedChunk(1, 30 * 8 + 6, 110 * 8 + 7, 2);
+		chunks[1][5][5] = packedChunk(1, 30 * 8 + 7, 110 * 8 + 6, 1);
+		// Grass padding must not become a room.
+		chunks[0][7][5] = packedChunk(1, 30 * 8, 110 * 8, 0);
+		Map<String, Object> value = tracker.snapshot(900L, true, 3, 5, 5, chunks);
+		List<Map<String, Object>> rooms = (List<Map<String, Object>>) value.get("rooms");
+		assertEquals(3, rooms.size());
+		assertEquals("Garden", rooms.get(0).get("roomType"));
+		assertEquals("Bedroom", rooms.get(1).get("roomType"));
+		assertEquals("Quest hall", rooms.get(2).get("roomType"));
+		assertEquals("template", rooms.get(2).get("identitySource"));
+		assertTrue(((List<?>) rooms.get(2).get("furniture")).isEmpty());
+		assertEquals(1, ((List<?>) rooms.get(1).get("hotspots")).size());
+		assertEquals(2, value.get("furnitureCount"));
+		assertTrue(furniture(value).stream().anyMatch(item -> "Oak bed".equals(item.get("displayName"))));
+	}
+
+	@Test
+	public void templateDecodingIsBoundedAndIndependentOfFurnitureAndRotation()
+	{
+		for (int regionX = 29; regionX <= 31; regionX++)
+		{
+			for (int plane = 0; plane < 4; plane++)
+			{
+				for (int rotation = 0; rotation < 4; rotation++)
+				{
+					assertEquals("Parlour", PohCatalogue.roomType(packedChunk(plane, regionX * 8, 110 * 8 + 7, rotation)));
+					assertEquals("League hall", PohCatalogue.roomType(packedChunk(plane, regionX * 8 + 5, 111 * 8, rotation)));
+				}
+			}
+		}
+		assertEquals(null, PohCatalogue.roomType(-1));
+		assertEquals(null, PohCatalogue.roomType(packedChunk(0, 28 * 8, 110 * 8 + 7, 0)));
+		assertEquals(null, PohCatalogue.roomType(packedChunk(0, 30 * 8, 109 * 8 + 7, 0)));
+		assertEquals(null, PohCatalogue.roomType(packedChunk(0, 30 * 8, 111 * 8 + 7, 0)));
+	}
+
+	@Test
+	public void accountResetCannotReusePreviousHouseEvidence()
+	{
+		PohSnapshotTracker tracker = new PohSnapshotTracker();
+		tracker.observeForTest(new Object(), ObjectID.POH_EXIT_PORTAL, "Portal", "Enter");
+		tracker.snapshot(1000L, true, 1, 1, 5, null);
+		tracker.resetAccount();
+		assertFalse((Boolean) tracker.snapshot(1100L, true, 1, 1, 5, null).get("loaded"));
 	}
 
 	private static int[][][] emptyChunks()

@@ -90,7 +90,7 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.15";
+	private static final String PLUGIN_VERSION = "0.1.16";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int MODEL_SAMPLE_INTERVAL_TICKS = 10;
@@ -124,6 +124,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private ClientThread clientThread;
 
 	private final PohSnapshotTracker pohSnapshots = new PohSnapshotTracker();
+	private final CarpenterPointsTracker carpenterPoints = new CarpenterPointsTracker();
 	private final HunterRumourSnapshot hunterRumours = new HunterRumourSnapshot();
 	private final DiaryJournalSnapshot diaryJournals = new DiaryJournalSnapshot();
 	private int diaryJournalPendingTicks;
@@ -359,6 +360,10 @@ public class GielinorProfileSyncPlugin extends Plugin
 	@Subscribe
 	public void onScriptPostFired(ScriptPostFired event)
 	{
+		if (client.getGameState() == GameState.LOGGED_IN && (event.getScriptId() == CarpenterPointsTracker.SHOP_INIT || event.getScriptId() == CarpenterPointsTracker.SHOP_POINTS))
+		{
+			carpenterPoints.observe(client.getWidget(InterfaceID.ConstructionContractShop.TOTAL), System.currentTimeMillis());
+		}
 		if (event.getScriptId() != ScriptID.COLLECTION_DRAW_LIST)
 		{
 			return;
@@ -699,7 +704,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "masteringMixology", "playerOwnedHouse", "playerOwnedHouseLayout", "collectionLogPageObservations", "containers", "sailingFleet", "sailingBoatNames", "grandExchange", "appearance", "playerModel", "playerModelVariants", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags", "vesselPortraitCaptures"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "masteringMixology", "carpenterPoints", "playerOwnedHouse", "playerOwnedHouseLayout", "collectionLogPageObservations", "containers", "sailingFleet", "sailingBoatNames", "grandExchange", "appearance", "playerModel", "playerModelVariants", "characterCaptures", "automaticSkillCaptures", "coarseLocationTags", "vesselPortraitCaptures"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -759,6 +764,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		{
 			hunterRumours.restore(previousSnapshot.get("hunterRumours"));
 			pohSnapshots.restore(previousSnapshot.get("playerOwnedHouse"));
+			carpenterPoints.restore(previousSnapshot.get("carpenterPoints"));
 		}
 		pohSnapshots.refresh(client::getObjectDefinition);
 		snapshot.put("playerOwnedHouse", pohSnapshots.snapshot(
@@ -771,6 +777,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		));
 		snapshot.put("hunterRumours", hunterRumours.snapshot());
 		snapshot.put("slayer", SlayerTaskSnapshot.build(client, now));
+		snapshot.put("carpenterPoints", carpenterPoints.snapshot(client.getWidget(InterfaceID.ConstructionContractShop.TOTAL), now));
 		snapshot.put("masteringMixology", MixologySnapshot.build(client::getVarpValue, client::getVarbitValue, now));
 		snapshot.put("collectionLog", collectionLogSnapshots.current().toMap());
 
@@ -1573,6 +1580,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		diaryJournals.resetAccount();
 		diaryJournalPendingTicks = 0;
 		pohSnapshots.resetAccount();
+		carpenterPoints.resetAccount();
 		lastGoodBank = null;
 		lastGoodInventory = null;
 		lastGoodEquipment = null;
@@ -1624,6 +1632,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		}
 		hunterRumours.resetAccount();
 		pohSnapshots.resetAccount();
+		carpenterPoints.resetAccount();
 		lastRsn = rsn;
 		collectionLogSnapshots.activate(rsn);
 		lastGoodBank = null;

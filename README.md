@@ -58,6 +58,15 @@ These screenshots show the optional companion website. Visit the
 for quests, minigames, Construction, fleet planning, and more, including which
 in-game companion features are still in preview.
 
+## Keep your next goal beside the game
+
+With a compatible Sailor's Log companion, the sidebar brings in two suggested
+quests and ideas for your lowest skill. Your observed Slayer and Hunter
+assignments appear alongside them. Choose **Make this my focus** to expand a
+card's next steps and Wiki guide while keeping the other suggestions compact.
+Slayer counts and skill XP update locally; your published Cooking or
+Construction supply checklist stays available below.
+
 ## Your data, your choice
 
 - Privacy-minded: the RuneLite plugin makes no network requests. Exports stay on your PC.
@@ -70,14 +79,17 @@ in-game companion features are still in preview.
 ### What it exports
 
 - Skill levels and XP, including Sailing
+- A small selection of distinct character poses for compatible avatar displays
 - A sidebar checklist for a Construction or Cooking plan saved by your companion app
 - Manual and opt-in automatic character-history scenes, including portraits of your own Sailing boats
 - Sailing boat names, fitted components, and observed cargo with freshness information
 - House furniture and room layouts observed while visiting your own house in building mode
 - Hunter Rumours observed in Hunter Guild dialogue or Quetzal whistle messages
+- Mastering Mixology reward points and stored hopper paste, with separate Mox, Aga, and Lye balances
 - Collection Log pages you have opened, retained separately for each account
 - Quest states
 - Achievement Diary task counts, tier completion, and separately claimed rewards
+- Named diary task completion, captured automatically when you open each region's diary journal and retained for that character after it closes
 - Current Slayer assignment, remaining count, assigned area, points, and task streak
 - Bank, inventory, and equipment snapshots with freshness metadata
 - Grand Exchange offers and RuneLite price estimates
@@ -125,12 +137,8 @@ See [docs/schema-v1.md](docs/schema-v1.md) for the stable top-level contract.
 
 </details>
 
-## More profile observations
+## Hunter Rumours field guide
 
-- Saves up to four distinct recent character poses for the current appearance.
-- Retains named Achievement Diary task completion observed in opened journals.
-- Exports separate Mastering Mixology reward points and hopper paste balances.
+Open the Hunter Rumours tab inside the Sailor's Log sidebar to see your observed assignment, creature picture, hunting locations, and supplies. Check your Quetzal whistle or Guild Hunter dialogue after changing rumours. Unobserved assignments remain unknown.
 
-## Saved checklist progress
-
-Checked supplies are hidden by default and retained for each character and published plan across restarts. Show checked supplies to review or undo a check. Publishing a new plan starts a new checklist.
+Creature images are © Jagex, sourced from the OSRS Wiki. Individual source links and the guide verification date are recorded in `src/main/resources/org/gielinor/profilesync/hunter/guide.json`. The guide and small images are bundled locally; this tab makes no network requests.

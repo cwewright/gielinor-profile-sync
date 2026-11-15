@@ -61,6 +61,11 @@ Construction or Cooking checklist from a companion app. The sidebar displays
 valid, unexpired plans up to 64 KiB and 80 items. Checkmarks stay local to the
 sidebar and reset with a new plan revision. The plugin makes no network calls.
 
+- `appearance.modelVariants`: up to four distinct recently observed poses for
+  the current appearance, advertised by `playerModelVariants`. Samples include
+  only local-player mesh geometry, reset on account or appearance changes, and
+  never include exact location, world number, or other players.
+
 ## Items
 
 `inventory`, `equipment`, and `bank` each include `loaded`, `value`,

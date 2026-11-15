@@ -90,7 +90,7 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.17";
+	private static final String PLUGIN_VERSION = "0.1.18";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
 	private static final int MODEL_SAMPLE_INTERVAL_TICKS = 10;
@@ -144,7 +144,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 	@Inject
 	private ClientToolbar clientToolbar;
 
-	private volatile RunelitePlanPanel runelitePlanPanel;
+	private volatile RuneliteOrdersPanel runelitePlanPanel;
+	private RuneliteOrders activeOrders;
 	private NavigationButton runelitePlanNavigation;
 	private final AtomicBoolean planRefreshQueued = new AtomicBoolean();
 	private int ticksSincePlanRefresh;
@@ -200,11 +201,11 @@ public class GielinorProfileSyncPlugin extends Plugin
 	protected void startUp()
 	{
 		exportStore = null;
-		runelitePlanPanel = new RunelitePlanPanel(new RunelitePlanProgress(gson,
+		runelitePlanPanel = new RuneliteOrdersPanel(new RunelitePlanProgress(gson,
 			key -> configManager.getConfiguration(CONFIG_GROUP, key),
 			(key, value) -> configManager.setConfiguration(CONFIG_GROUP, key, value)));
 		runelitePlanNavigation = NavigationButton.builder()
-			.tooltip("Sailor's Log plan")
+			.tooltip("Sailor's Log · Orders and Hunter Rumours")
 			.icon(createPlanIcon())
 			.priority(7)
 			.panel(runelitePlanPanel)
@@ -219,6 +220,16 @@ public class GielinorProfileSyncPlugin extends Plugin
 		});
 		fileExecutor.execute(() ->
 		{
+			try
+			{
+				HunterRumourGuide guide = HunterRumourGuide.load(gson);
+				RuneliteOrdersPanel panel = runelitePlanPanel;
+				if (panel != null) { panel.showHunterGuide(guide); }
+			}
+			catch (IOException | RuntimeException e)
+			{
+				log.debug("Could not load the bundled Hunter field guide.", e);
+			}
 			try
 			{
 				previousSnapshot = getExportStore().readLatest();
@@ -260,6 +271,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		}
 		runelitePlanPanel = null;
 		activePlan = null;
+		activeOrders = null;
 		planInventoryDirty = true;
 		planRefreshQueued.set(false);
 		captureInProgress = false;
@@ -275,6 +287,10 @@ public class GielinorProfileSyncPlugin extends Plugin
 	@Subscribe
 	public void onGameStateChanged(GameStateChanged event)
 	{
+		if (event.getGameState() == GameState.LOGIN_SCREEN && runelitePlanPanel != null)
+		{
+			runelitePlanPanel.resetSession();
+		}
 		if (event.getGameState() == GameState.LOADING || event.getGameState() == GameState.LOGIN_SCREEN)
 		{
 			pohSnapshots.clearScene();
@@ -516,7 +532,6 @@ public class GielinorProfileSyncPlugin extends Plugin
 		{
 			resetAccount(rsn);
 		}
-
 		if (diaryJournalPendingTicks > 0 && --diaryJournalPendingTicks == 0)
 		{
 			Widget title = client.getWidget(InterfaceID.Journalscroll.TITLE);
@@ -550,14 +565,20 @@ public class GielinorProfileSyncPlugin extends Plugin
 			return;
 		}
 
-		observePlanInventory();
-		requestAutomaticCaptureIfDue();
-
 		if (ticksSinceModelSample >= MODEL_SAMPLE_INTERVAL_TICKS)
 		{
 			ticksSinceModelSample = 0;
 			observePlayerModel(player);
 		}
+		observePlanInventory();
+		if (ticksLoggedIn % 10 == 0 && runelitePlanPanel != null)
+		{
+			RuneliteOrdersPanel panel = runelitePlanPanel;
+			RuneliteOrders orders = activeOrders != null && activeOrders.belongsTo(rsn)
+				&& activeOrders.expiresAt.isAfter(Instant.now()) ? activeOrders : null;
+			panel.showOrders(RuneliteOrdersLive.cards(client, hunterRumours.snapshot(), orders, rsn), orders, true);
+		}
+		requestAutomaticCaptureIfDue();
 
 		int interval = Math.max(10, config.exportIntervalTicks());
 		if (ticksSinceExport < interval)
@@ -572,7 +593,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private void requestPlanRefresh()
 	{
 		ExecutorService executor = fileExecutor;
-		RunelitePlanPanel panel = runelitePlanPanel;
+		RuneliteOrdersPanel panel = runelitePlanPanel;
 		if (executor == null || panel == null || !planRefreshQueued.compareAndSet(false, true))
 		{
 			return;
@@ -584,6 +605,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 				try
 				{
 					RunelitePlan plan = new RunelitePlanStore(getPluginDirectory()).read();
+					RuneliteOrders orders = RuneliteOrders.read(getPluginDirectory(), java.time.Clock.systemUTC());
 					clientThread.invokeLater(() ->
 					{
 						if (runelitePlanPanel == panel)
@@ -593,6 +615,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 								planInventoryDirty = true;
 							}
 							activePlan = plan;
+							activeOrders = orders;
 							panel.showPlan(plan);
 						}
 					});
@@ -615,7 +638,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	private void observePlanInventory()
 	{
-		RunelitePlanPanel panel = runelitePlanPanel;
+		RuneliteOrdersPanel panel = runelitePlanPanel;
 		if (!planInventoryDirty || activePlan == null || panel == null)
 		{
 			return;
@@ -1541,15 +1564,13 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	private void resetSession()
 	{
-		diaryJournals.resetAccount();
-		diaryJournalPendingTicks = 0;
-		ticksSinceModelSample = 0;
-		modelVariantLibrary.reset();
 		ticksLoggedIn = 0;
 		ticksSinceExport = 0;
 		lastRsn = "";
 		collectionLogSnapshots.deactivate();
 		hunterRumours.resetAccount();
+		diaryJournals.resetAccount();
+		diaryJournalPendingTicks = 0;
 		pohSnapshots.resetAccount();
 		lastGoodBank = null;
 		lastGoodInventory = null;
@@ -1559,6 +1580,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 		bankContextUntil = 0;
 		captureInProgress = false;
 		captureActivityTracker.reset();
+		ticksSinceModelSample = 0;
+		modelVariantLibrary.reset();
 		ticksSinceAutomaticCapture = 0;
 		automaticBankCapturePending = false;
 	}
@@ -1592,13 +1615,11 @@ public class GielinorProfileSyncPlugin extends Plugin
 				}
 			});
 		}
-		ticksSinceModelSample = 0;
-		modelVariantLibrary.reset();
 		planInventoryDirty = true;
-		RunelitePlanPanel panel = runelitePlanPanel;
+		RuneliteOrdersPanel panel = runelitePlanPanel;
 		if (panel != null)
 		{
-			SwingUtilities.invokeLater(() -> { panel.resetSession(); panel.setAccount(rsn); });
+			SwingUtilities.invokeLater(() -> { panel.resetSession(); panel.setPlanAccount(rsn); });
 		}
 		hunterRumours.resetAccount();
 		pohSnapshots.resetAccount();
@@ -1612,6 +1633,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 		bankContextUntil = 0;
 		captureInProgress = false;
 		captureActivityTracker.reset();
+		ticksSinceModelSample = 0;
+		modelVariantLibrary.reset();
 		ticksSinceAutomaticCapture = 0;
 		automaticBankCapturePending = false;
 		ticksSinceExport = Math.max(10, config.exportIntervalTicks());

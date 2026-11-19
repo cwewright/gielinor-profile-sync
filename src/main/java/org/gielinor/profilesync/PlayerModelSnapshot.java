@@ -36,6 +36,36 @@ final class PlayerModelSnapshot
 			model.getFaceTextures());
 	}
 
+	static Map<String, Object> poseFrom(Model model)
+	{
+		if (model == null)
+		{
+			return null;
+		}
+		return encodePose(
+			model.getVerticesCount(),
+			model.getVerticesX(),
+			model.getVerticesY(),
+			model.getVerticesZ());
+	}
+
+	static Map<String, Object> encodePose(int vertexCount, float[] verticesX, float[] verticesY, float[] verticesZ)
+	{
+		if (vertexCount <= 0 ||
+			!hasLength(verticesX, vertexCount) ||
+			!hasLength(verticesY, vertexCount) ||
+			!hasLength(verticesZ, vertexCount))
+		{
+			return null;
+		}
+		Map<String, Object> output = new LinkedHashMap<>();
+		output.put("vertexCount", vertexCount);
+		output.put("verticesX", roundedCopy(verticesX, vertexCount));
+		output.put("verticesY", roundedCopy(verticesY, vertexCount));
+		output.put("verticesZ", roundedCopy(verticesZ, vertexCount));
+		return output;
+	}
+
 	static Map<String, Object> encode(
 		int vertexCount,
 		float[] verticesX,

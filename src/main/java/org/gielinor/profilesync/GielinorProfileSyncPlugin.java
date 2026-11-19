@@ -41,6 +41,7 @@ import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.WallObjectDespawned;
 import net.runelite.api.events.WallObjectSpawned;
+import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarPlayerID;
@@ -66,9 +67,10 @@ import net.runelite.client.util.Text;
 public class GielinorProfileSyncPlugin extends Plugin
 {
 	static final String CONFIG_GROUP = "gielinor-profile-sync";
-	private static final String PLUGIN_VERSION = "0.1.6";
+	private static final String PLUGIN_VERSION = "0.1.15";
 	private static final int SCHEMA_VERSION = 1;
 	private static final int LOGIN_SETTLE_TICKS = 5;
+	private static final int MODEL_SAMPLE_INTERVAL_TICKS = 10;
 	private static final int COLLECTION_LOG_ENTRY_TITLE_INDEX = 0;
 	private static final int[] SAILING_CARGO_INVENTORIES = {
 		InventoryID.SAILING_BOAT_1_CARGOHOLD,
@@ -96,6 +98,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	private final PohSnapshotTracker pohSnapshots = new PohSnapshotTracker();
 	private final HunterRumourSnapshot hunterRumours = new HunterRumourSnapshot();
+	private final DiaryJournalSnapshot diaryJournals = new DiaryJournalSnapshot();
+	private int diaryJournalPendingTicks;
 	private final CollectionLogAccountSnapshots collectionLogSnapshots = new CollectionLogAccountSnapshots();
 
 	private ExecutorService fileExecutor;
@@ -103,6 +107,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 	private volatile Map<String, Object> previousSnapshot = Collections.emptyMap();
 	private int ticksLoggedIn;
 	private int ticksSinceExport;
+	private int ticksSinceModelSample;
+	private final PlayerModelVariantLibrary modelVariantLibrary = new PlayerModelVariantLibrary();
 	private String lastRsn = "";
 	private CachedContainer lastGoodBank;
 	private CachedContainer lastGoodInventory;
@@ -317,6 +323,15 @@ public class GielinorProfileSyncPlugin extends Plugin
 	}
 
 	@Subscribe
+	public void onWidgetLoaded(WidgetLoaded event)
+	{
+		if (event.getGroupId() == InterfaceID.JOURNALSCROLL)
+		{
+			diaryJournalPendingTicks = 3;
+		}
+	}
+
+	@Subscribe
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
 		int containerId = event.getContainerId();
@@ -348,11 +363,34 @@ public class GielinorProfileSyncPlugin extends Plugin
 			resetAccount(rsn);
 		}
 
+		if (diaryJournalPendingTicks > 0 && --diaryJournalPendingTicks == 0)
+		{
+			Widget title = client.getWidget(InterfaceID.Journalscroll.TITLE);
+			Widget text = client.getWidget(InterfaceID.Journalscroll.TEXTLAYER);
+			if (title != null && text != null && !text.isHidden())
+			{
+				List<String> rows = new ArrayList<>();
+				for (Widget child : text.getStaticChildren())
+				{
+					rows.add(child == null ? "" : child.getText());
+				}
+				diaryJournals.observe(title.getText(), rows, System.currentTimeMillis());
+				ticksSinceExport = Math.max(10, config.exportIntervalTicks());
+			}
+		}
+
 		ticksLoggedIn++;
 		ticksSinceExport++;
+		ticksSinceModelSample++;
 		if (ticksLoggedIn < LOGIN_SETTLE_TICKS)
 		{
 			return;
+		}
+
+		if (ticksSinceModelSample >= MODEL_SAMPLE_INTERVAL_TICKS)
+		{
+			ticksSinceModelSample = 0;
+			observePlayerModel(player);
 		}
 
 		int interval = Math.max(10, config.exportIntervalTicks());
@@ -374,7 +412,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("timestamp", now);
 		snapshot.put("timestampIso", Instant.ofEpochMilli(now).toString());
 		snapshot.put("source", buildSource());
-		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "playerOwnedHouse", "playerOwnedHouseLayout", "collectionLogPageObservations", "containers", "sailingFleet", "sailingBoatNames", "grandExchange", "appearance", "playerModel"));
+		snapshot.put("capabilities", Arrays.asList("skills", "quests", "achievementDiaries", "achievementDiaryTaskProgress", "slayerTask", "hunterRumours", "masteringMixology", "playerOwnedHouse", "playerOwnedHouseLayout", "collectionLogPageObservations", "containers", "sailingFleet", "sailingBoatNames", "grandExchange", "appearance", "playerModel", "playerModelVariants"));
 		snapshot.put("rsn", rsn);
 		snapshot.put("combatLevel", player.getCombatLevel());
 		snapshot.put("totalLevel", calculateTotalLevel());
@@ -427,7 +465,9 @@ public class GielinorProfileSyncPlugin extends Plugin
 		snapshot.put("grandExchange", grandExchange);
 		snapshot.put("grandExchangeAccountValueEstimate", getLong(grandExchange.get("accountValueEstimate")));
 		snapshot.put("quests", buildQuests());
-		snapshot.put("achievementDiaries", AchievementDiarySnapshot.build(client::getVarbitValue));
+		Map<String, Object> diaries = AchievementDiarySnapshot.build(client::getVarbitValue);
+		diaries.put("journalObservations", diaryJournals.snapshot());
+		snapshot.put("achievementDiaries", diaries);
 		if (rsn.equals(previousSnapshot.get("rsn")))
 		{
 			hunterRumours.restore(previousSnapshot.get("hunterRumours"));
@@ -443,6 +483,7 @@ public class GielinorProfileSyncPlugin extends Plugin
 		));
 		snapshot.put("hunterRumours", hunterRumours.snapshot());
 		snapshot.put("slayer", SlayerTaskSnapshot.build(client, now));
+		snapshot.put("masteringMixology", MixologySnapshot.build(client::getVarpValue, client::getVarbitValue, now));
 		snapshot.put("collectionLog", collectionLogSnapshots.current().toMap());
 
 		ExecutorService executor = fileExecutor;
@@ -548,14 +589,26 @@ public class GielinorProfileSyncPlugin extends Plugin
 			return appearance;
 		}
 
-		appearance.put("gender", composition.getGender());
-		appearance.put("colors", toIntegerList(composition.getColors()));
-		appearance.put("equipmentIds", toIntegerList(composition.getEquipmentIds()));
-		appearance.put("transformedNpcId", composition.getTransformedNpcId());
+		int[] equipmentIds = composition.getEquipmentIds();
+		int[] colors = composition.getColors();
+		int gender = composition.getGender();
+		int transformedNpcId = composition.getTransformedNpcId();
+		appearance.put("gender", gender);
+		appearance.put("colors", toIntegerList(colors));
+		appearance.put("equipmentIds", toIntegerList(equipmentIds));
+		appearance.put("transformedNpcId", transformedNpcId);
+		String fingerprint = appearanceFingerprint(equipmentIds, colors, gender, transformedNpcId);
+		appearance.put("fingerprint", fingerprint);
 		Map<String, Object> model = PlayerModelSnapshot.from(player.getModel());
 		if (model != null)
 		{
+			modelVariantLibrary.observe(fingerprint, modelPoseKind(player), model);
 			appearance.put("model", model);
+			List<Map<String, Object>> modelVariants = modelVariantLibrary.variantsFor(fingerprint, model);
+			if (!modelVariants.isEmpty())
+			{
+				appearance.put("modelVariants", modelVariants);
+			}
 		}
 
 		Map<String, Object> slots = new LinkedHashMap<>();
@@ -583,6 +636,43 @@ public class GielinorProfileSyncPlugin extends Plugin
 		}
 		appearance.put("slots", slots);
 		return appearance;
+	}
+
+	private void observePlayerModel(Player player)
+	{
+		PlayerComposition composition = player.getPlayerComposition();
+		if (composition == null)
+		{
+			return;
+		}
+		Map<String, Object> model = PlayerModelSnapshot.poseFrom(player.getModel());
+		if (model == null)
+		{
+			return;
+		}
+		modelVariantLibrary.observe(
+			appearanceFingerprint(
+				composition.getEquipmentIds(),
+				composition.getColors(),
+				composition.getGender(),
+				composition.getTransformedNpcId()),
+			modelPoseKind(player),
+			model
+		);
+	}
+
+	private String appearanceFingerprint(int[] equipmentIds, int[] colors, int gender, int transformedNpcId)
+	{
+		return String.format("%08x-%08x-%d-%d", Arrays.hashCode(equipmentIds), Arrays.hashCode(colors), gender, transformedNpcId);
+	}
+
+	private String modelPoseKind(Player player)
+	{
+		if (player.getAnimation() != -1)
+		{
+			return "activity";
+		}
+		return player.getPoseAnimation() != player.getIdlePoseAnimation() ? "movement" : "idle";
 	}
 
 	private List<Integer> toIntegerList(int[] values)
@@ -882,6 +972,10 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	private void resetSession()
 	{
+		diaryJournals.resetAccount();
+		diaryJournalPendingTicks = 0;
+		ticksSinceModelSample = 0;
+		modelVariantLibrary.reset();
 		ticksLoggedIn = 0;
 		ticksSinceExport = 0;
 		lastRsn = "";
@@ -896,6 +990,35 @@ public class GielinorProfileSyncPlugin extends Plugin
 
 	private void resetAccount(String rsn)
 	{
+		diaryJournals.resetAccount();
+		if (fileExecutor != null)
+		{
+			fileExecutor.execute(() -> {
+				Map<String, Object> saved;
+				try
+				{
+					saved = getExportStore().readAccount(rsn);
+				}
+				catch (IOException ex)
+				{
+					log.debug("Could not restore diary observations", ex);
+					return;
+				}
+				Object raw = saved.get("achievementDiaries");
+				if (raw instanceof Map && rsn.equals(saved.get("rsn")))
+				{
+					Object journals = ((Map<?, ?>) raw).get("journalObservations");
+					clientThread.invokeLater(() -> {
+						if (rsn.equals(lastRsn))
+						{
+							diaryJournals.restore(journals);
+						}
+					});
+				}
+			});
+		}
+		ticksSinceModelSample = 0;
+		modelVariantLibrary.reset();
 		hunterRumours.resetAccount();
 		pohSnapshots.resetAccount();
 		lastRsn = rsn;

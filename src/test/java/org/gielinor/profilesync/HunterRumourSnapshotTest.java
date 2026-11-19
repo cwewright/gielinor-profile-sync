@@ -13,6 +13,95 @@ import static org.junit.Assert.assertTrue;
 public class HunterRumourSnapshotTest
 {
 	@Test
+	public void exportsExplicitCompletionTotalsIncludingLegacyColoursAndCommas()
+	{
+		HunterRumourSnapshot tracker = new HunterRumourSnapshot();
+		assertTrue(tracker.observe(ChatMessageType.GAMEMESSAGE,
+			"You have completed @red@1,234</col> rumours for the Hunter Guild.", false, 100L));
+		assertEquals(1234, tracker.snapshot().get("completionCount"));
+		assertEquals(true, tracker.snapshot().get("loaded"));
+		assertNull(tracker.snapshot().get("current"));
+		assertEquals("unavailable", tracker.snapshot().get("status"));
+		assertTrue(tracker.observe(ChatMessageType.GAMEMESSAGE,
+			"You have completed <col=ff0000>1</col> rumour for the Hunter Guild.", false, 200L));
+		assertEquals(1, tracker.snapshot().get("completionCount"));
+		assertTrue(tracker.observe(ChatMessageType.GAMEMESSAGE,
+			"You have completed 0 rumours for the Hunter Guild.", false, 300L));
+		assertEquals(0, tracker.snapshot().get("completionCount"));
+	}
+
+	@Test
+	public void repeatedTotalsAreNotAddedAndOrdinaryTurnInsDoNotGuessCounts()
+	{
+		HunterRumourSnapshot tracker = new HunterRumourSnapshot();
+		String total = "You have completed 42 rumours for the Hunter Guild.";
+		tracker.observe(ChatMessageType.GAMEMESSAGE, total, false, 100L);
+		tracker.observe(ChatMessageType.GAMEMESSAGE, total, false, 200L);
+		tracker.observe(ChatMessageType.DIALOG, "Guild Hunter Teco|Here's your reward. Would you like another rumour?", true, 300L);
+		assertEquals(42, tracker.snapshot().get("completionCount"));
+		assertEquals("none", tracker.snapshot().get("status"));
+		tracker.observe(ChatMessageType.GAMEMESSAGE, "You have completed 43 rumours for the Hunter Guild.", false, 400L);
+		assertEquals(43, tracker.snapshot().get("completionCount"));
+	}
+
+	@Test
+	public void retainsTotalsAcrossRestartButClearsThemForAnotherAccount()
+	{
+		HunterRumourSnapshot original = new HunterRumourSnapshot();
+		original.observe(ChatMessageType.GAMEMESSAGE, "You have completed 42 rumours for the Hunter Guild.", false, 100L);
+		HunterRumourSnapshot restored = new HunterRumourSnapshot();
+		restored.restore(original.snapshot());
+		assertEquals(42, restored.snapshot().get("completionCount"));
+		assertEquals(true, restored.snapshot().get("fromCache"));
+		restored.observe(ChatMessageType.GAMEMESSAGE, "Your current rumour target is a grey chinchompa.", false, 200L);
+		assertEquals(42, restored.snapshot().get("completionCount"));
+		restored.resetAccount();
+		assertNull(restored.snapshot().get("completionCount"));
+	}
+
+	@Test
+	public void restoresTotalsWhenTheCurrentAssignmentWasAlreadyObserved()
+	{
+		HunterRumourSnapshot saved = new HunterRumourSnapshot();
+		saved.observe(ChatMessageType.GAMEMESSAGE, "You have completed 41 rumours for the Hunter Guild.", false, 100L);
+		HunterRumourSnapshot current = new HunterRumourSnapshot();
+		current.observe(ChatMessageType.GAMEMESSAGE, "Your current rumour target is a grey chinchompa.", false, 200L);
+		current.restore(saved.snapshot());
+		assertEquals(41, current.snapshot().get("completionCount"));
+		current.observe(ChatMessageType.GAMEMESSAGE, "You have completed 42 rumours for the Hunter Guild.", false, 300L);
+		current.restore(saved.snapshot());
+		assertEquals(42, current.snapshot().get("completionCount"));
+	}
+
+	@Test
+	public void rejectsOtherChatTypesMalformedCountsAndUnrelatedTotals()
+	{
+		HunterRumourSnapshot tracker = new HunterRumourSnapshot();
+		assertFalse(tracker.observe(ChatMessageType.PUBLICCHAT, "You have completed 99 rumours for the Hunter Guild.", false, 100L));
+		for (String count : new String[]{"-1", "1.5", "1,23", "99999999999999999999999"})
+		{
+			assertFalse(tracker.observe(ChatMessageType.GAMEMESSAGE, "You have completed " + count + " rumours for the Hunter Guild.", false, 100L));
+		}
+		assertFalse(tracker.observe(ChatMessageType.GAMEMESSAGE, "You have completed 99 tasks for the Slayer Guild.", false, 100L));
+		assertNull(tracker.snapshot().get("completionCount"));
+	}
+
+	@Test
+	public void oldExportsAndInvalidSavedTotalsRemainUnknown()
+	{
+		HunterRumourSnapshot original = new HunterRumourSnapshot();
+		original.observe(ChatMessageType.GAMEMESSAGE, "Your current rumour target is a grey chinchompa.", false, 100L);
+		for (Object count : new Object[]{null, -1, 1.5, Double.NaN, Double.POSITIVE_INFINITY, 2147483648L, "42"})
+		{
+			Map<String, Object> saved = original.snapshot();
+			saved.put("completionCount", count);
+			HunterRumourSnapshot restored = new HunterRumourSnapshot();
+			restored.restore(saved);
+			assertNull(restored.snapshot().get("completionCount"));
+		}
+	}
+
+	@Test
 	@SuppressWarnings("unchecked")
 	public void recognizesRankedHunterNamesInCurrentGuildDialogue()
 	{

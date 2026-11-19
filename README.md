@@ -73,7 +73,7 @@ in-game companion features are still in preview.
 - Manual and opt-in automatic character-history scenes, including portraits of your own Sailing boats
 - Sailing boat names, fitted components, and observed cargo with freshness information
 - House furniture and room layouts observed while visiting your own house in building mode
-- Hunter Rumours observed in Hunter Guild dialogue or Quetzal whistle messages
+- Hunter Rumours observed in Hunter Guild dialogue or Quetzal whistle messages, with completed-rumour totals captured from the game's Hunter Guild total message and retained across restarts
 - Collection Log pages you have opened, retained separately for each account
 - Quest states
 - Achievement Diary task counts, tier completion, and separately claimed rewards

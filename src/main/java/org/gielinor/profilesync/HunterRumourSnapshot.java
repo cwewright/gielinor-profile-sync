@@ -8,20 +8,23 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.gameval.NpcID;
 
 /**
  * Retains Hunter Rumour evidence observed in the game's own dialogue and
  * Quetzal whistle messages. RuneLite does not expose a complete server-backed
- * assignment variable, so unobserved masters and completion totals stay
- * unknown instead of being inferred from inventory or Hunter XP.
+ * assignment variable, so unobserved masters stay unknown. Completion totals
+ * come only from the game's explicit Hunter Guild total message.
  */
 final class HunterRumourSnapshot
 {
 	private static final String COVERAGE = "observed-dialogue-and-whistle";
 	private static final String SOURCE = "RuneLite Hunter Guild dialogue and Quetzal whistle observations";
 	private static final String RARE_PIECE_MESSAGE = "you find a rare piece of the creature! you should take it back to the hunter guild.";
+	private static final Pattern COMPLETION_TOTAL = Pattern.compile("^you have completed (?:@[^@]+@)*([0-9]+|[0-9]{1,3}(?:,[0-9]{3})+) rumours? for the hunter guild\\.$");
 	private static final List<HunterDefinition> HUNTERS = Arrays.asList(
 		new HunterDefinition("wolf", NpcID.HG_WOLF, "Wolf", "Guild Hunter Wolf", "master"),
 		new HunterDefinition("teco", NpcID.HG_TECO, "Teco", "Guild Hunter Teco", "expert"),
@@ -41,6 +44,7 @@ final class HunterRumourSnapshot
 	private boolean knownNoAssignment;
 	private long lastSeenTimestamp;
 	private boolean restored;
+	private Integer completionCount;
 
 	boolean observe(ChatMessageType type, String rawMessage, boolean inHunterBurrows, long observedAt)
 	{
@@ -52,6 +56,20 @@ final class HunterRumourSnapshot
 
 		if (type == ChatMessageType.GAMEMESSAGE)
 		{
+			Matcher total = COMPLETION_TOTAL.matcher(message);
+			if (total.matches())
+			{
+				try
+				{
+					completionCount = Integer.valueOf(total.group(1).replace(",", ""));
+					markObserved(observedAt);
+					return true;
+				}
+				catch (NumberFormatException invalidTotal)
+				{
+					return false;
+				}
+			}
 			if (message.contains("your current rumour target is"))
 			{
 				HunterDefinition hunter = referencedHunter(message);
@@ -130,12 +148,25 @@ final class HunterRumourSnapshot
 
 	void restore(Object value)
 	{
-		if (lastSeenTimestamp > 0 || !(value instanceof Map))
+		if (!(value instanceof Map))
 		{
 			return;
 		}
 		Map<?, ?> candidate = (Map<?, ?>) value;
 		if (!Boolean.TRUE.equals(candidate.get("loaded")) || !(candidate.get("assignments") instanceof List))
+		{
+			return;
+		}
+		Object savedCount = candidate.get("completionCount");
+		if (completionCount == null && savedCount instanceof Number)
+		{
+			double count = ((Number) savedCount).doubleValue();
+			if (count >= 0 && count <= Integer.MAX_VALUE && count == Math.floor(count))
+			{
+				completionCount = (int) count;
+			}
+		}
+		if (lastSeenTimestamp > 0)
 		{
 			return;
 		}
@@ -194,6 +225,7 @@ final class HunterRumourSnapshot
 		knownNoAssignment = false;
 		lastSeenTimestamp = 0L;
 		restored = false;
+		completionCount = null;
 	}
 
 	Map<String, Object> snapshot()
@@ -201,7 +233,7 @@ final class HunterRumourSnapshot
 		Map<String, Object> output = new LinkedHashMap<>();
 		output.put("schemaVersion", 1);
 		output.put("source", SOURCE);
-		output.put("sourceVersion", "hunter-rumours-observation-v3");
+		output.put("sourceVersion", "hunter-rumours-observation-v4");
 		output.put("coverage", COVERAGE);
 		output.put("loaded", lastSeenTimestamp > 0);
 		output.put("fromCache", restored && lastSeenTimestamp > 0);
@@ -219,7 +251,7 @@ final class HunterRumourSnapshot
 		}
 		output.put("assignments", observedAssignments);
 		output.put("current", activeRumour == null ? null : currentToMap());
-		output.put("completionCount", null);
+		output.put("completionCount", completionCount);
 		output.put("unobservedAssignmentsAreUnknown", true);
 		return output;
 	}

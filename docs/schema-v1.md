@@ -54,6 +54,13 @@ minor plugin updates remain forwards-compatible.
   A vessel portrait requires a confirmed active owned boat. Images are bounded
   to 4 MiB, with recent bank, skill, and vessel examples retained when pruning.
 
+## Local plan checklist
+
+`runelite-plan.json` in the plugin data directory can contain a schema `1`
+Construction or Cooking checklist from a companion app. The sidebar displays
+valid, unexpired plans up to 64 KiB and 80 items. Checkmarks stay local to the
+sidebar and reset with a new plan revision. The plugin makes no network calls.
+
 ## Items
 
 `inventory`, `equipment`, and `bank` each include `loaded`, `value`,

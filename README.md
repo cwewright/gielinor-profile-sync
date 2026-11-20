@@ -70,6 +70,7 @@ in-game companion features are still in preview.
 ### What it exports
 
 - Skill levels and XP, including Sailing
+- A sidebar checklist for a Construction or Cooking plan saved by your companion app
 - Manual and opt-in automatic character-history scenes, including portraits of your own Sailing boats
 - Sailing boat names, fitted components, and observed cargo with freshness information
 - House furniture and room layouts observed while visiting your own house in building mode
@@ -129,3 +130,7 @@ See [docs/schema-v1.md](docs/schema-v1.md) for the stable top-level contract.
 - Saves up to four distinct recent character poses for the current appearance.
 - Retains named Achievement Diary task completion observed in opened journals.
 - Exports separate Mastering Mixology reward points and hopper paste balances.
+
+## Saved checklist progress
+
+Checked supplies are hidden by default and retained for each character and published plan across restarts. Show checked supplies to review or undo a check. Publishing a new plan starts a new checklist.

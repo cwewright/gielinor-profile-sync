@@ -205,9 +205,9 @@ public class GielinorProfileSyncPlugin extends Plugin
 		exportStore = null;
 		runelitePlanPanel = new RuneliteOrdersPanel(new RunelitePlanProgress(gson,
 			key -> configManager.getConfiguration(CONFIG_GROUP, key),
-			(key, value) -> configManager.setConfiguration(CONFIG_GROUP, key, value)));
+			(key, value) -> configManager.setConfiguration(CONFIG_GROUP, key, value)), itemManager);
 		runelitePlanNavigation = NavigationButton.builder()
-			.tooltip("Sailor's Log · Orders and Hunter Rumours")
+			.tooltip("Sailor's Log · Orders, Hunter Rumours and Slayer")
 			.icon(createPlanIcon())
 			.priority(7)
 			.panel(runelitePlanPanel)
@@ -585,7 +585,8 @@ public class GielinorProfileSyncPlugin extends Plugin
 			RuneliteOrdersPanel panel = runelitePlanPanel;
 			RuneliteOrders orders = activeOrders != null && activeOrders.belongsTo(rsn)
 				&& activeOrders.expiresAt.isAfter(Instant.now()) ? activeOrders : null;
-			panel.showOrders(RuneliteOrdersLive.cards(client, hunterRumours.snapshot(), orders, rsn), orders, true);
+			Map<String, Object> slayer = SlayerTaskSnapshot.build(client, 0);
+			panel.showOrders(RuneliteOrdersLive.cards(client, slayer, hunterRumours.snapshot(), orders, rsn), orders, true, slayer);
 		}
 		requestAutomaticCaptureIfDue();
 

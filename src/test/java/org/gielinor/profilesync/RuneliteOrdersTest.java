@@ -14,6 +14,7 @@ import java.util.Map;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
+import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
 import net.runelite.client.util.Filepath;
 import org.junit.Rule;
@@ -117,6 +118,40 @@ public class RuneliteOrdersTest
 		assertTrue(labels(panel).contains("Lowest skill at sync"));
 		SwingUtilities.invokeAndWait(panel::resetSession);
 		assertFalse(labels(panel).contains("Herblore"));
+	}
+
+	@Test public void slayerTabTracksLiveProgressAndHonorsTheAssignedArea() throws Exception
+	{
+		SwingUtilities.invokeAndWait(() ->
+		{
+			RuneliteOrdersPanel panel = new RuneliteOrdersPanel();
+			JTabbedPane tabs = (JTabbedPane) panel.getComponent(0);
+			assertEquals("Slayer", tabs.getTitleAt(2));
+			Container slayerTab = (Container) tabs.getComponentAt(2);
+			assertTrue(labels(slayerTab).contains("Log in"));
+
+			Map<String, Object> task = Map.of("monster", "Kalphites", "remaining", 156, "original", 160);
+			Map<String, Object> slayer = Map.of("status", "live", "taskLoaded", true, "task", task);
+			panel.showOrders(RuneliteOrdersLive.tasks(slayer, Collections.emptyMap()), null, true, slayer);
+			assertTrue(labels(slayerTab).contains("156 remaining"));
+			assertTrue(labels(slayerTab).contains("Starting count 160"));
+			assertTrue(labels(slayerTab).contains("fairy ring BIQ"));
+			assertTrue(labels(slayerTab).contains("Kalphite Lair"));
+
+			Map<String, Object> restricted = Map.of("status", "live", "task", Map.of(
+				"monster", "Kalphites", "remaining", 155, "requiredLocation", "Kalphite Cave", "requiredLocationId", 1));
+			panel.showOrders(Collections.emptyList(), null, true, restricted);
+			assertTrue(labels(slayerTab).contains("155 remaining"));
+			assertTrue(labels(slayerTab).contains("REQUIRED AREA"));
+			assertTrue(labels(slayerTab).contains("Kalphite Cave"));
+			assertFalse(labels(slayerTab).contains("Kalphite Lair"));
+
+			panel.showOrders(Collections.emptyList(), null, true, Map.of("status", "none"));
+			assertTrue(labels(slayerTab).contains("No active Slayer assignment"));
+			assertFalse(labels(slayerTab).contains("Kalphites"));
+			panel.resetSession();
+			assertTrue(labels(slayerTab).contains("Log in"));
+		});
 	}
 
 	private static String labels(Container root)

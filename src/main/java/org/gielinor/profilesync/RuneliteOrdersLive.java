@@ -20,9 +20,9 @@ final class RuneliteOrdersLive
 {
 	private RuneliteOrdersLive() { }
 
-	static List<RuneliteOrders.Card> cards(Client client, Map<String, Object> hunter, RuneliteOrders orders, String rsn)
+	static List<RuneliteOrders.Card> cards(Client client, Map<String, Object> slayer, Map<String, Object> hunter, RuneliteOrders orders, String rsn)
 	{
-		List<RuneliteOrders.Card> cards = tasks(SlayerTaskSnapshot.build(client, 0), hunter);
+		List<RuneliteOrders.Card> cards = tasks(slayer, hunter);
 		cards.addAll(suggestions(orders, rsn, name ->
 		{
 			for (Quest quest : Quest.values())
@@ -90,5 +90,5 @@ final class RuneliteOrdersLive
 		return cards;
 	}
 
-	private static String wiki(String name) { return "https://oldschool.runescape.wiki/w/" + URLEncoder.encode(name.replace(' ', '_'), StandardCharsets.UTF_8); }
+	static String wiki(String name) { return "https://oldschool.runescape.wiki/w/" + URLEncoder.encode(name.replace(' ', '_'), StandardCharsets.UTF_8); }
 }

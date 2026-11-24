@@ -17,6 +17,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
+import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ColorScheme;
 import net.runelite.client.ui.PluginPanel;
 import net.runelite.client.util.LinkBrowser;
@@ -27,6 +28,7 @@ final class RuneliteOrdersPanel extends PluginPanel
 	private final JPanel ordersPanel = new JPanel();
 	private final RunelitePlanPanel planPanel;
 	private final HunterRumourPanel hunterPanel = new HunterRumourPanel();
+	private final SlayerPanel slayerPanel;
 	private HunterRumourGuide hunterGuide;
 	private List<RuneliteOrders.Card> cards = Collections.emptyList();
 	private RuneliteOrders orders;
@@ -36,12 +38,13 @@ final class RuneliteOrdersPanel extends PluginPanel
 
 	RuneliteOrdersPanel()
 	{
-		this(null);
+		this(null, null);
 	}
 
-	RuneliteOrdersPanel(RunelitePlanProgress progress)
+	RuneliteOrdersPanel(RunelitePlanProgress progress, ItemManager itemManager)
 	{
 		planPanel = new RunelitePlanPanel(progress);
+		slayerPanel = new SlayerPanel(itemManager);
 		setLayout(new BorderLayout());
 		ordersPanel.setLayout(new BoxLayout(ordersPanel, BoxLayout.Y_AXIS));
 		ordersPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -54,14 +57,22 @@ final class RuneliteOrdersPanel extends PluginPanel
 		JTabbedPane tabs = new JTabbedPane();
 		tabs.addTab("Orders", ordersTab);
 		tabs.addTab("Hunter Rumours", hunterPanel);
+		tabs.addTab("Slayer", slayerPanel);
 		add(tabs);
 		planPanel.setVisible(false);
+		slayerPanel.showTask(Collections.emptyMap(), false);
 		render();
 	}
 
 	void showOrders(List<RuneliteOrders.Card> value, RuneliteOrders document, boolean inGame)
 	{
-		if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(() -> showOrders(value, document, inGame)); return; }
+		showOrders(value, document, inGame, Collections.emptyMap());
+	}
+
+	void showOrders(List<RuneliteOrders.Card> value, RuneliteOrders document, boolean inGame, Map<String, Object> slayer)
+	{
+		if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(() -> showOrders(value, document, inGame, slayer)); return; }
+		slayerPanel.showTask(slayer, inGame);
 		StringBuilder key = new StringBuilder(Boolean.toString(inGame));
 		if (document != null) { key.append(document.accountName).append(document.updatedAt).append(document.snapshotAt); }
 		for (RuneliteOrders.Card card : value) { key.append(card.id).append(card.title).append(card.summary).append(card.details); }

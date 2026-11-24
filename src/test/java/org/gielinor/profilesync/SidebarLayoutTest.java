@@ -6,8 +6,10 @@ import java.awt.Container;
 import java.awt.Rectangle;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import javax.swing.JButton;
 import javax.swing.JPanel;
+import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
 import net.runelite.client.ui.PluginPanel;
 import org.junit.Test;
@@ -38,6 +40,12 @@ public class SidebarLayoutTest
 			panel.showOrders(List.of(new RuneliteOrders.Card("quest:test", "quest", "Barbarian Training", "Tracked requirements met. A detailed quest summary should wrap and remain inside the available space.", List.of("Resume and complete Barbarian Training at your own pace."), null, null, null, 0)), null, true);
 			findFocus(panel).doClick();
 			panel.setSize(PluginPanel.PANEL_WIDTH, 1400);
+			for (int i = 0; i < 3; i++) { layout(panel); }
+			checkBounds(panel, panel);
+
+			panel.showOrders(List.of(), null, true, Map.of("status", "live", "task", Map.of("monster", "Kalphites", "remaining", 156)));
+			JTabbedPane tabs = (JTabbedPane) panel.getComponent(0);
+			tabs.setSelectedIndex(2);
 			for (int i = 0; i < 3; i++) { layout(panel); }
 			checkBounds(panel, panel);
 		});

@@ -234,6 +234,16 @@ public class GielinorProfileSyncPlugin extends Plugin
 			}
 			try
 			{
+				SlayerGuide guide = SlayerGuide.load(gson);
+				RuneliteOrdersPanel panel = runelitePlanPanel;
+				if (panel != null) { panel.showSlayerGuide(guide); }
+			}
+			catch (IOException | RuntimeException e)
+			{
+				log.debug("Could not load the bundled Slayer field guide.", e);
+			}
+			try
+			{
 				previousSnapshot = getExportStore().readLatest();
 			}
 			catch (IOException e)

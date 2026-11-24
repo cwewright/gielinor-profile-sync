@@ -1,5 +1,6 @@
 package org.gielinor.profilesync;
 
+import com.google.gson.Gson;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
@@ -34,8 +35,10 @@ public class SidebarLayoutTest
 
 	@Test public void expandedOrdersAndChecklistFitRuneLitesSidebar() throws Exception
 	{
+		SlayerGuide guide = SlayerGuide.load(new Gson());
 		SwingUtilities.invokeAndWait(() -> {
 			RuneliteOrdersPanel panel = new RuneliteOrdersPanel();
+			panel.showSlayerGuide(guide);
 			panel.showPlan(new RunelitePlan("cooking:test", "cooking", "1 × Salmon", "A long cooking description with details about preparing your supplies.", "Cached bank", "revision", Instant.now(), Instant.now().plusSeconds(3600), List.of(new RunelitePlan.Item("fish", "Raw salmon", 1, 1, 0, "ready", null, false, "material"))));
 			panel.showOrders(List.of(new RuneliteOrders.Card("quest:test", "quest", "Barbarian Training", "Tracked requirements met. A detailed quest summary should wrap and remain inside the available space.", List.of("Resume and complete Barbarian Training at your own pace."), null, null, null, 0)), null, true);
 			findFocus(panel).doClick();

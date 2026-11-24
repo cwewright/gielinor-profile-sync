@@ -88,6 +88,12 @@ final class RuneliteOrdersPanel extends PluginPanel
 
 	void showPlan(RunelitePlan plan) { planPanel.showPlan(plan); }
 	void setPlanAccount(String account) { planPanel.setAccount(account); }
+	void showSlayerGuide(SlayerGuide guide)
+	{
+		if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(() -> showSlayerGuide(guide)); return; }
+		slayerPanel.setGuide(guide);
+	}
+
 	void showHunterGuide(HunterRumourGuide guide)
 	{
 		if (!SwingUtilities.isEventDispatchThread()) { SwingUtilities.invokeLater(() -> showHunterGuide(guide)); return; }

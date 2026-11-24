@@ -2,9 +2,11 @@ package org.gielinor.profilesync;
 
 import java.awt.Color;
 import java.awt.Insets;
+import java.util.List;
 import java.util.Map;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
+import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -17,6 +19,7 @@ import net.runelite.client.util.LinkBrowser;
 final class SlayerPanel extends JPanel
 {
 	private final ItemManager itemManager;
+	private SlayerGuide guide;
 	private Map<String, Object> lastSnapshot;
 	private boolean loggedIn;
 
@@ -36,19 +39,30 @@ final class SlayerPanel extends JPanel
 		}
 		loggedIn = inGame;
 		lastSnapshot = snapshot;
+		render();
+	}
+
+	void setGuide(SlayerGuide guide)
+	{
+		this.guide = guide;
+		render();
+	}
+
+	private void render()
+	{
 		removeAll();
 		heading("SLAYER");
-		if (!inGame)
+		if (!loggedIn)
 		{
 			line("Log in to see your Slayer assignment.");
 		}
-		else if ("live".equals(snapshot.get("status")) && snapshot.get("task") instanceof Map)
+		else if ("live".equals(lastSnapshot.get("status")) && lastSnapshot.get("task") instanceof Map)
 		{
-			addTask((Map<?, ?>) snapshot.get("task"));
+			addTask((Map<?, ?>) lastSnapshot.get("task"));
 		}
 		else
 		{
-			line("none".equals(snapshot.get("status")) ? "No active Slayer assignment." : "Waiting for Slayer assignment data.");
+			line("none".equals(lastSnapshot.get("status")) ? "No active Slayer assignment." : "Waiting for Slayer assignment data.");
 		}
 		revalidate();
 		repaint();
@@ -59,11 +73,19 @@ final class SlayerPanel extends JPanel
 		String monster = task.get("monster") instanceof String ? (String) task.get("monster") : null;
 		String area = task.get("requiredLocation") instanceof String ? (String) task.get("requiredLocation") : null;
 		boolean areaRestricted = area != null || task.get("requiredLocationId") != null;
-		boolean kalphites = "Kalphites".equalsIgnoreCase(monster);
+		SlayerGuide.Task entry = guide == null ? null : guide.find(monster);
 		add(RuneliteOrdersPanel.copy(monster == null ? "Assignment name unavailable" : monster, Color.WHITE));
-		if (itemManager != null)
+		if (entry != null)
 		{
-			AsyncBufferedImage sprite = itemManager.getImage(kalphites ? ItemID.POH_KALPHITE_SOLDIER : ItemID.SLAYER_GEM);
+			JLabel image = new JLabel(new ImageIcon(entry.portrait));
+			image.setAlignmentX(LEFT_ALIGNMENT);
+			image.setToolTipText(entry.portraitName + " · Jagex via OSRS Wiki · " + entry.imageFile);
+			add(image);
+			line(entry.portraitName + " · Jagex via OSRS Wiki");
+		}
+		else if (itemManager != null)
+		{
+			AsyncBufferedImage sprite = itemManager.getImage(ItemID.SLAYER_GEM);
 			if (sprite != null)
 			{
 				JLabel icon = new JLabel();
@@ -82,9 +104,13 @@ final class SlayerPanel extends JPanel
 			heading("REQUIRED AREA");
 			line(area == null ? "Check your Slayer gem for the assigned area." : area);
 		}
-		if (kalphites)
+		if (entry != null)
 		{
-			addKalphiteGuide(area, areaRestricted);
+			addTravelAndSupplies(entry, area, areaRestricted, task.get("assignedById"));
+		}
+		else if (monster != null)
+		{
+			line("Use the task guide for locations, travel and supplies.");
 		}
 		if (area != null)
 		{
@@ -92,25 +118,65 @@ final class SlayerPanel extends JPanel
 		}
 		if (monster != null)
 		{
-			link("Open task guide", kalphites ? "https://oldschool.runescape.wiki/w/Slayer_task/Kalphites" : RuneliteOrdersLive.wiki(monster));
+			link("Open task guide", entry != null && RuneliteOrders.safeGuide(entry.sourceUrl) ? entry.sourceUrl : RuneliteOrdersLive.wiki(monster));
 		}
 		link("Slayer on Sailor's Log", "https://osrs.cwew.org/#/slayer");
 	}
 
-	private void addKalphiteGuide(String area, boolean areaRestricted)
+	private void addTravelAndSupplies(SlayerGuide.Task entry, String area, boolean areaRestricted, Object masterId)
 	{
-		boolean cave = !areaRestricted || "Kalphite Cave".equalsIgnoreCase(area);
-		boolean lair = !areaRestricted || "Kalphite Lair".equalsIgnoreCase(area);
-		if (cave || lair)
+		heading("WHERE TO GO");
+		List<SlayerGuide.Venue> venues = guide.venues(entry, area, areaRestricted, masterId);
+		if (venues.isEmpty())
 		{
-			heading("WHERE TO GO");
-			if (cave) { line("Kalphite Cave · east of Shantay Pass. From fairy ring BIQ, head northeast."); }
-			if (lair) { line("Kalphite Lair · near fairy ring BIQ or west of Shantay Pass."); }
-			line("Use fairy ring BIQ if unlocked, or bring a Shantay pass via Al Kharid.");
+			line("Check the task or area guide for travel to your assigned location.");
+		}
+		for (SlayerGuide.Venue venue : venues)
+		{
+			add(RuneliteOrdersPanel.copy(venue.label + " · " + venue.creature, Color.WHITE));
+			if (venue.wilderness)
+			{
+				line("Wilderness route · bring only gear you can risk.");
+			}
+			showRequirements(venue.requirements);
+			SlayerGuide.Travel travel = guide.travel.get(venue.key);
+			if (travel == null)
+			{
+				link("Open location guide", RuneliteOrdersLive.wiki(venue.label));
+				continue;
+			}
+			for (SlayerGuide.Option option : travel.options)
+			{
+				line(option.label + " · " + option.directions);
+				showRequirements(option.requirements);
+			}
+			if (travel.note != null)
+			{
+				line(travel.note);
+			}
 		}
 		heading("WHAT TO BRING");
-		line("Bring poison protection for soldiers or guardians. Workers do not poison.");
-		if (lair) { line("Bring rope for the Lair entrance if your rope is not already in place."); }
+		for (String supply : entry.supplies)
+		{
+			line(supply);
+		}
+		if (entry.boss)
+		{
+			line("Pack food and a way out for the route you choose.");
+			line("Use the boss guide for encounter-specific gear and supplies.");
+		}
+		else if (entry.supplies.isEmpty())
+		{
+			line("Bring food and a return teleport. Check the creature guide for any special equipment.");
+		}
+	}
+
+	private void showRequirements(List<String> requirements)
+	{
+		if (!requirements.isEmpty())
+		{
+			line("Requires " + String.join(" · ", requirements));
+		}
 	}
 
 	private void heading(String text)

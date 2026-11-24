@@ -1,5 +1,6 @@
 package org.gielinor.profilesync;
 
+import com.google.gson.Gson;
 import java.awt.Component;
 import java.awt.Container;
 import java.nio.charset.StandardCharsets;
@@ -122,9 +123,11 @@ public class RuneliteOrdersTest
 
 	@Test public void slayerTabTracksLiveProgressAndHonorsTheAssignedArea() throws Exception
 	{
+		SlayerGuide guide = SlayerGuide.load(new Gson());
 		SwingUtilities.invokeAndWait(() ->
 		{
 			RuneliteOrdersPanel panel = new RuneliteOrdersPanel();
+			panel.showSlayerGuide(guide);
 			JTabbedPane tabs = (JTabbedPane) panel.getComponent(0);
 			assertEquals("Slayer", tabs.getTitleAt(2));
 			Container slayerTab = (Container) tabs.getComponentAt(2);
@@ -135,7 +138,7 @@ public class RuneliteOrdersTest
 			panel.showOrders(RuneliteOrdersLive.tasks(slayer, Collections.emptyMap()), null, true, slayer);
 			assertTrue(labels(slayerTab).contains("156 remaining"));
 			assertTrue(labels(slayerTab).contains("Starting count 160"));
-			assertTrue(labels(slayerTab).contains("fairy ring BIQ"));
+			assertTrue(labels(slayerTab).contains("Fairy ring BIQ"));
 			assertTrue(labels(slayerTab).contains("Kalphite Lair"));
 
 			Map<String, Object> restricted = Map.of("status", "live", "task", Map.of(
@@ -146,12 +149,47 @@ public class RuneliteOrdersTest
 			assertTrue(labels(slayerTab).contains("Kalphite Cave"));
 			assertFalse(labels(slayerTab).contains("Kalphite Lair"));
 
+			Map<String, Object> gargoyles = Map.of("status", "live", "task", Map.of("monster", "Gargoyles", "remaining", 30));
+			panel.showOrders(Collections.emptyList(), null, true, gargoyles);
+			assertTrue(labels(slayerTab).contains("Slayer Tower"));
+			assertTrue(labels(slayerTab).contains("Rock hammer"));
+			assertTrue(descendants(slayerTab).stream().filter(JLabel.class::isInstance).map(JLabel.class::cast)
+				.anyMatch(label -> label.getIcon() != null && label.getIcon().getIconWidth() == 88));
+			assertFalse(labels(slayerTab).contains("Kalphite"));
+
+			Map<String, Object> unresolved = Map.of("status", "live", "task", Map.of(
+				"monster", "Dust devils", "remaining", 20, "requiredLocationId", 1));
+			panel.showOrders(Collections.emptyList(), null, true, unresolved);
+			assertTrue(labels(slayerTab).contains("Check your Slayer gem"));
+			assertFalse(labels(slayerTab).contains("Catacombs of Kourend"));
+
 			panel.showOrders(Collections.emptyList(), null, true, Map.of("status", "none"));
 			assertTrue(labels(slayerTab).contains("No active Slayer assignment"));
 			assertFalse(labels(slayerTab).contains("Kalphites"));
 			panel.resetSession();
 			assertTrue(labels(slayerTab).contains("Log in"));
 		});
+	}
+
+	@Test public void slayerGuideCoversCataloguedAssignmentsAndWildernessRestrictions() throws Exception
+	{
+		SlayerGuide guide = SlayerGuide.load(new Gson());
+		assertEquals(152, guide.tasks.size());
+		for (SlayerGuide.Task task : guide.tasks)
+		{
+			assertSame(task.name, task, guide.find(task.name));
+			assertNotNull(task.name, task.portrait);
+			assertTrue(task.name, java.util.Arrays.stream(task.portrait.getRGB(0, 0, 88, 88, null, 0, 88))
+				.anyMatch(pixel -> (pixel >>> 24) != 0));
+			assertTrue(task.name, RuneliteOrders.safeGuide(task.sourceUrl));
+			assertTrue(task.name, task.venues.stream().anyMatch(venue -> guide.travel.containsKey(venue.key)));
+		}
+		SlayerGuide.Task demons = guide.find("Greater demons");
+		List<SlayerGuide.Venue> wilderness = guide.venues(demons, null, false, 7);
+		assertFalse(wilderness.isEmpty());
+		assertTrue(wilderness.stream().allMatch(venue -> venue.wilderness));
+		assertSame(guide.find("Kalphites"), guide.find("kalphite"));
+		assertNull(guide.find("An unsupported task"));
 	}
 
 	private static String labels(Container root)

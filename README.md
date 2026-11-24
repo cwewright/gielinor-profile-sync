@@ -141,4 +141,10 @@ See [docs/schema-v1.md](docs/schema-v1.md) for the stable top-level contract.
 
 Open the Hunter Rumours tab inside the Sailor's Log sidebar to see your observed assignment, creature picture, hunting locations, and supplies. Check your Quetzal whistle or Guild Hunter dialogue after changing rumours. Unobserved assignments remain unknown.
 
+## Slayer field guide
+
+Open the Slayer tab to see the current assignment, a representative creature picture, travel directions, and supplies. The tab follows assigned areas and Wilderness tasks. Travel requirements are listed next to each route. The task and location guides cover more alternatives.
+
+The offline field guide uses the Sailor's Log bestiary and [OSRS Wiki Slayer reference](https://oldschool.runescape.wiki/w/Slayer_task). Creature pictures are © Jagex via the OSRS Wiki, with the source file named on each portrait.
+
 Creature images are © Jagex, sourced from the OSRS Wiki. Individual source links and the guide verification date are recorded in `src/main/resources/org/gielinor/profilesync/hunter/guide.json`. The guide and small images are bundled locally; this tab makes no network requests.
